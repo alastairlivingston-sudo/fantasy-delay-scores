@@ -171,10 +171,7 @@ function render(d) {
   // PLAYOFFS
   d.matches.filter(m=>m.playoff).forEach((m)=>deck.appendChild(matchPanel(m, d.matches.indexOf(m))));
 
-  // TRADES (only when present)
-  if (d.trades && d.trades.length) deck.appendChild(tradesPanel(d.trades));
-
-  // FINALE: celebration + champions (merch SVGs removed — real photos slot in via celebrationPanel)
+  // FINALE: celebration + champions
   deck.appendChild(celebrationPanel());
   deck.appendChild(panel(`<div class="finale-hero">
     <img class="crest big" src="${LOGO}" alt="crest"/>
