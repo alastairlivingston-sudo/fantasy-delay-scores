@@ -1,0 +1,655 @@
+# Borehamwood Champions 2025 — Complete File Set
+
+Every file you need, full contents. Create each at the path shown. The **only** thing you add yourself is `public/data/all-weeks.csv` (your data).
+
+```
+borehamwood-champions-2025/
+├── package.json
+├── netlify.toml
+├── .gitignore
+├── .env.example
+├── CLAUDE.md
+├── .claude/
+│   ├── skills/fantasy-recap/SKILL.md
+│   └── commands/{refresh-data.md, deploy.md}
+├── scripts/{nfl-slots.js, fetch-trades.js, generate-commentary.js}
+└── public/
+    ├── index.html
+    ├── styles.css
+    ├── app.js
+    └── data/
+        ├── all-weeks.csv        ← YOU ADD THIS (your data)
+        └── season.seed.json
+```
+
+-----
+
+## `package.json`
+
+```json
+{
+  "name": "borehamwood-champions-2025",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "slots": "node scripts/nfl-slots.js",
+    "trades": "node scripts/fetch-trades.js",
+    "commentary": "node scripts/generate-commentary.js",
+    "data": "npm run slots && npm run trades",
+    "dev": "npx serve public -l 5173",
+    "deploy": "netlify deploy --prod --dir public"
+  },
+  "dependencies": { "papaparse": "^5.4.1" }
+}
+```
+
+## `netlify.toml`
+
+```toml
+[build]
+  publish = "public"
+```
+
+## `.gitignore`
+
+```
+node_modules/
+.DS_Store
+.netlify/
+.env
+```
+
+## `.env.example`
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+NETLIFY_AUTH_TOKEN=
+```
+
+-----
+
+## `CLAUDE.md`
+
+```markdown
+# Borehamwood Champions 2025 — Project Memory
+
+## What this is
+A mobile-first, swipeable celebration web app for "Fourth and Golda Meir" (Sleeper handle AlastairL),
+2025 champions of the Borehamwood Plancy League. Pure static site, hosted on Netlify. No backend.
+
+## Hard rules (learned the hard way — do not violate)
+1. The Sleeper API has NO CORS headers. Never call it from the browser. Only from Node scripts at build
+   time, writing static JSON into public/data/.
+2. No secrets in the client. The site is public. AI commentary is generated offline and committed as JSON.
+3. Verify, never fabricate. All scores must reconcile against the known finals in season.seed.json.
+4. Plain text only for ingest. The source of truth is public/data/all-weeks.csv.
+
+## Architecture
+all-weeks.csv -> app.js (PapaParse, in-browser) -> swipe deck
+season.seed.json (schedule + baked banter + score cross-check)
+nfl-slots.json (generated: per-match timelines)
+commentary.json (generated: overrides seed banter)
+trades.json (generated: Deadline Moves panel)
+
+## Data contract
+- all-weeks.csv: Owner, Week, Player, Position, NFL, Fantasy, Points
+- season.seed.json: { matches:[{week, playoff, opp, handle, mine, them, commentary}] }
+- nfl-slots.json: { "<week>": { "<TEAM>": "<ISO kickoff>" } }
+- commentary.json: { "<week>": "<string>" }
+- trades.json: [ { week, parties:[team], summary } ]
+
+## Known data facts (validation)
+Regular season 9-5, playoffs 2-0, final 11-5. Week 15 = first-round bye (skip in UI).
+Week 3 lost by 0.02 (131.84-131.86). Week 12 conceded 202.36. Week 7 high 156.58.
+Championship Week 17 vs Plancey Neutral (dpol) 143.96-118.58.
+
+## Conventions
+- Design: clean dark NFL-broadcast aesthetic. Oswald + Inter. Gold #C8A951. Mobile-first scroll-snap.
+- Starter detection: a row is a starter unless its Fantasy slot is in
+  {BN,BE,BENCH,IR,TAXI,RES,RESERVE,NA,empty}. App auto-checks both interpretations vs known scores.
+- NFL codes: map Sleeper->ESPN via TEAMFIX in app.js
+  (GNB->GB, KAN->KC, JAC->JAX, NWE->NE, NOR->NO, SFO->SF, TAM->TB, WAS->WSH, LA->LAR, OAK/LVR->LV, ARZ->ARI).
+
+## Voice
+Bone-dry British banter treating a low-stakes hobby with the utmost mock-gravity. Roast the loser
+(including us), celebrate the winner, never cruel, always funny. Reference real players and numbers.
+
+## Build & deploy
+npm run data ; npm run commentary (optional, needs ANTHROPIC_API_KEY) ; npm run dev ; npm run deploy
+```
+
+-----
+
+## `.claude/skills/fantasy-recap/SKILL.md`
+
+```markdown
+---
+name: fantasy-recap
+description: >
+  Build self-contained, mobile-first, data-driven sports/fantasy recap web apps that read a committed
+  CSV/JSON dataset and render a swipeable story deck. Use for celebration or season-review sites that
+  must be statically hosted with no backend and no client-side secrets.
+---
+
+# Fantasy Recap Builder
+
+## Method (in order)
+1. Read the data contract first. Confirm CSV/JSON shape before writing UI. Never assume columns.
+2. One committed source of truth in /data, parsed client-side (PapaParse for CSV). No servers.
+3. External APIs only from Node build scripts that write static JSON (browsers hit CORS; scripts don't).
+4. Verify against ground truth. Reconcile to known totals; fix parsing to match reality, never edit data.
+5. Mobile-first story deck: CSS scroll-snap, one item per screen, progress dots, a finale. No heavy libs.
+6. No secrets client-side. AI text generated offline and committed as JSON.
+7. Shareable: native share + canvas-to-PNG cards per item.
+
+## Design system
+Dark broadcast aesthetic; Oswald (display) + Inter (body); one accent colour; tabular-nums; subtle glow.
+
+## Definition of done
+Loads on a phone <2s; every number traceable to the dataset; deploys as a static folder, zero secrets.
+```
+
+## `.claude/commands/refresh-data.md`
+
+```markdown
+Refresh all generated data files, then verify.
+1. Run `npm run data` (writes public/data/nfl-slots.json and trades.json via the Node scripts).
+2. If ANTHROPIC_API_KEY is set, run `npm run commentary`.
+3. Start `npm run dev`, load the page, report: does the "verified" badge show? Any empty timelines
+   (TEAMFIX gap)? List any week whose computed score differs from season.seed.json.
+```
+
+## `.claude/commands/deploy.md`
+
+```markdown
+Deploy to Netlify.
+1. Confirm public/data/all-weeks.csv exists and the preview reconciles scores.
+2. Run `npm run deploy`. If not logged in, run `netlify login` first (or use NETLIFY_AUTH_TOKEN).
+3. Report the live URL.
+```
+
+-----
+
+## `scripts/nfl-slots.js`
+
+```js
+// Fetch 2025 NFL kickoff slots -> public/data/nfl-slots.json.  Run: node scripts/nfl-slots.js
+const fs = require("fs");
+const path = require("path");
+const OUT = path.join(__dirname, "..", "public", "data", "nfl-slots.json");
+const YEAR = 2025;
+
+(async () => {
+  const out = {};
+  for (let w = 1; w <= 18; w++) {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&dates=${YEAR}&week=${w}`;
+    try {
+      const data = await (await fetch(url)).json();
+      const wk = {};
+      (data.events || []).forEach(ev => {
+        (ev.competitions?.[0]?.competitors || []).forEach(c => {
+          const ab = c.team?.abbreviation;
+          if (ab) wk[ab.toUpperCase()] = ev.date;
+        });
+      });
+      out[w] = wk;
+      console.log(`week ${w}: ${Object.keys(wk).length} teams`);
+    } catch (e) { console.warn(`week ${w} failed:`, e.message); }
+  }
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  fs.writeFileSync(OUT, JSON.stringify(out));
+  console.log("wrote", OUT);
+})();
+```
+
+## `scripts/fetch-trades.js`
+
+```js
+// Fetch league trades -> public/data/trades.json.  Run: node scripts/fetch-trades.js
+const fs = require("fs"); const path = require("path");
+const USERNAME = "AlastairL", SEASON = "2025";
+const OUT = path.join(__dirname, "..", "public", "data", "trades.json");
+const get = async u => (await fetch(u)).json();
+
+(async () => {
+  const user = await get(`https://api.sleeper.app/v1/user/${USERNAME}`);
+  const leagues = await get(`https://api.sleeper.app/v1/user/${user.user_id}/leagues/nfl/${SEASON}`);
+  const lg = leagues.find(l => /borehamwood|plancy/i.test(l.name)) || leagues[0];
+  const [rosters, users] = await Promise.all([
+    get(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
+    get(`https://api.sleeper.app/v1/league/${lg.league_id}/users`)
+  ]);
+  const teamByRoster = {};
+  rosters.forEach(r => {
+    const u = users.find(x => x.user_id === r.owner_id);
+    teamByRoster[r.roster_id] = u?.metadata?.team_name || u?.display_name || `Team ${r.roster_id}`;
+  });
+  const trades = [];
+  for (let w = 1; w <= 17; w++) {
+    const txns = await get(`https://api.sleeper.app/v1/league/${lg.league_id}/transactions/${w}`);
+    (txns || []).filter(t => t.type === "trade" && t.status === "complete").forEach(t => {
+      const parties = (t.roster_ids || []).map(id => teamByRoster[id]);
+      trades.push({ week: w, parties, summary: `${parties.join(" <-> ")} — ${Object.keys(t.adds || {}).length} players moved` });
+    });
+  }
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  fs.writeFileSync(OUT, JSON.stringify(trades, null, 2));
+  console.log(`wrote ${trades.length} trades`);
+})();
+```
+
+## `scripts/generate-commentary.js`
+
+```js
+// Player-aware banter -> public/data/commentary.json
+// Run: ANTHROPIC_API_KEY=sk-... node scripts/generate-commentary.js
+const fs = require("fs"); const path = require("path"); const Papa = require("papaparse");
+const DATA = path.join(__dirname, "..", "public", "data");
+const BENCH = new Set(["BN","BE","BENCH","IR","TAXI","RES","RESERVE","NA",""]);
+const MY = "alastairl"; const lc = s => String(s ?? "").trim().toLowerCase();
+
+const seed = JSON.parse(fs.readFileSync(path.join(DATA, "season.seed.json"), "utf8"));
+const rows = Papa.parse(fs.readFileSync(path.join(DATA, "all-weeks.csv"), "utf8"),
+  { header: true, dynamicTyping: true, skipEmptyLines: true }).data
+  .filter(r => r && r.Owner != null && r.Week != null)
+  .map(r => ({ owner: lc(r.Owner), week: +r.Week, player: r.Player, pos: r.Position, slot: lc(r.Fantasy), pts: +r.Points || 0 }));
+
+const top = (o, wk) => rows.filter(r => r.owner === o && r.week === wk && !BENCH.has(r.slot))
+  .sort((a, b) => b.pts - a.pts).slice(0, 3).map(r => `${r.player} (${r.pos}) ${r.pts.toFixed(1)}`);
+const benchHero = (o, wk) => rows.filter(r => r.owner === o && r.week === wk && BENCH.has(r.slot)).sort((a, b) => b.pts - a.pts)[0];
+
+const BRIEF = `You are the official commentator of the Borehamwood Plancy League fantasy NFL league.
+Voice: bone-dry British banter that takes a low-stakes hobby with the utmost mock-gravity. Roast the loser
+(including us), celebrate the winner, never cruel, always funny. Reference the actual players and numbers.
+2-3 sentences. No emoji. Champion is "Fourth and Golda Meir".`;
+
+(async () => {
+  const out = {};
+  for (const m of seed.matches) {
+    const oh = m.handle.toLowerCase(); const bh = benchHero(MY, m.week);
+    const ctx = `Week ${m.week}${m.playoff ? " (PLAYOFF)" : ""}: Fourth and Golda Meir ${m.mine} vs ${m.opp} ${m.them} — ${m.mine > m.them ? "WIN" : "LOSS"}.
+Our top scorers: ${top(MY, m.week).join(", ") || "n/a"}.
+Their top scorers: ${top(oh, m.week).join(", ") || "n/a"}.
+${bh ? `Our highest-scoring benched player: ${bh.player} ${bh.pts.toFixed(1)}.` : ""}`;
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 300, system: BRIEF, messages: [{ role: "user", content: ctx }] })
+    });
+    const data = await res.json();
+    out[m.week] = (data.content || []).map(c => c.text || "").join("").trim();
+    console.log(`week ${m.week} ok`);
+  }
+  fs.writeFileSync(path.join(DATA, "commentary.json"), JSON.stringify(out, null, 2));
+  console.log("wrote commentary.json");
+})();
+```
+
+-----
+
+## `public/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1"/>
+<meta name="theme-color" content="#05080D"/>
+<title>Fourth and Golda Meir · 2025 Champions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <canvas id="fx"></canvas>
+  <canvas id="cardcanvas" hidden></canvas>
+  <div id="dots" class="dots"></div>
+  <main id="deck" class="deck"></main>
+  <div class="fab-row">
+    <button id="upload" class="fab">+ Data</button>
+    <button id="share" class="fab gold">Share</button>
+  </div>
+  <input id="fileinput" type="file" accept=".csv,.json" hidden />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+```
+
+## `public/styles.css`
+
+```css
+:root{--gold:#C8A951;--gold2:#F0D070;--dark:#05080D;--card:#0C1219;--green:#1DB954;--red:#E53E3E;--text:#F0F4F8;--muted:#5A7080}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--dark);color:var(--text);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+#fx{position:fixed;inset:0;pointer-events:none;z-index:5;opacity:.5}
+.deck{height:100dvh;overflow-y:scroll;scroll-snap-type:y mandatory;scroll-behavior:smooth}
+.deck::-webkit-scrollbar{display:none}
+.panel{min-height:100dvh;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:flex;flex-direction:column;justify-content:center;padding:calc(env(safe-area-inset-top) + 40px) 22px calc(env(safe-area-inset-bottom) + 90px);overflow:hidden}
+.panel .bg{position:absolute;inset:0;z-index:0}
+.panel .scrim{position:absolute;inset:0;z-index:1;background:radial-gradient(ellipse 120% 80% at 50% -10%,rgba(200,169,81,.12),transparent 60%),linear-gradient(180deg,rgba(5,8,13,.4),rgba(5,8,13,.94))}
+.panel .content{position:relative;z-index:2;width:100%;max-width:560px;margin:0 auto}
+.eyebrow{font-size:11px;letter-spacing:5px;text-transform:uppercase;color:var(--gold);text-align:center;margin-bottom:20px}
+.trophy{font-size:84px;text-align:center;display:block;margin-bottom:14px;filter:drop-shadow(0 0 50px rgba(200,169,81,.5));animation:float 5s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+.bigname{font-family:'Oswald';font-weight:700;font-size:clamp(46px,13vw,84px);line-height:.9;text-align:center;text-transform:uppercase;letter-spacing:-1px;background:linear-gradient(160deg,#F0D070,#C8A951 45%,#8B6914);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.subline{text-align:center;font-size:12px;letter-spacing:5px;text-transform:uppercase;color:rgba(255,255,255,.35);margin-top:16px}
+.verified{margin:22px auto 0;width:max-content;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--green);border:1px solid rgba(29,185,84,.4);border-radius:999px;padding:6px 14px}
+.panel-title{font-family:'Oswald';font-weight:600;font-size:13px;letter-spacing:4px;text-transform:uppercase;color:var(--muted);text-align:center;margin-bottom:18px}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:var(--card);border:1px solid #1C2A3A;border-radius:12px;padding:22px 16px;text-align:center}
+.stat .n{font-family:'Oswald';font-weight:600;font-size:34px;color:var(--gold);font-variant-numeric:tabular-nums}
+.stat .n.g{color:var(--green)}.stat .n.r{color:var(--red)}
+.stat .l{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-top:6px}
+.m-week{font-family:'Oswald';font-weight:600;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);text-align:center;margin-bottom:14px}
+.m-week.po{color:var(--gold2)}
+.m-result{font-family:'Oswald';font-weight:700;font-size:clamp(34px,10vw,52px);text-transform:uppercase;text-align:center;line-height:1}
+.m-result.w{color:var(--green)}.m-result.l{color:var(--red)}
+.m-score{display:flex;align-items:stretch;border:1px solid #1C2A3A;border-radius:14px;overflow:hidden;margin:18px 0}
+.m-side{flex:1;padding:14px}.m-side.me{background:rgba(200,169,81,.06)}.m-side.them{background:rgba(0,0,0,.25);text-align:right}
+.m-side .t{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.m-side .p{font-family:'Oswald';font-weight:600;font-size:26px;font-variant-numeric:tabular-nums}
+.m-side .p.win{color:var(--green)}.m-side .p.lose{color:var(--red)}.m-side .p.gold{color:var(--gold)}
+.m-sep{display:flex;align-items:center;padding:0 10px;color:var(--muted);font-family:'Oswald'}
+.m-report{font-size:14px;line-height:1.7;color:#B8CCD8}
+.bench-stat{margin-top:14px;font-size:12px;color:var(--muted);text-align:center}.bench-stat b{color:var(--gold2)}
+.perf-wrap{display:flex;gap:12px;margin-top:18px}
+.perf{flex:1;background:rgba(12,18,25,.6);border:1px solid #1C2A3A;border-radius:12px;padding:12px}
+.perf-h{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.perf-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px}
+.perf-rank{color:var(--muted);width:14px;font-family:'Oswald'}
+.perf-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.perf-name em{color:var(--muted);font-style:normal;font-size:10px;margin-left:4px}
+.perf-pts{font-family:'Oswald';font-weight:600;color:var(--gold);font-variant-numeric:tabular-nums}
+.bye{text-align:center}.bye .icon{font-size:56px;margin-bottom:16px}
+.cta{display:block;margin:28px auto 0;background:linear-gradient(135deg,var(--gold),#A07828);color:#000;border:none;font-family:'Oswald';font-weight:600;font-size:15px;letter-spacing:3px;text-transform:uppercase;padding:16px 40px;border-radius:6px}
+.dots{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:6;display:flex;flex-direction:column;gap:7px}
+.dots b{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.18);transition:all .3s}
+.dots b.on{background:var(--gold);height:18px;border-radius:3px}
+.hint{position:absolute;bottom:calc(80px + env(safe-area-inset-bottom));left:0;right:0;z-index:3;text-align:center;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);animation:bob 2s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+.spark-wrap{margin:16px 0 4px}
+.spark-legend{display:flex;gap:16px;justify-content:center;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.spark-legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.dot-me{background:var(--gold)}.dot-them{background:var(--muted)}
+.spark{width:100%;height:64px;display:block}
+.spark-x{display:flex;justify-content:space-between;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:3px}
+.story{text-align:center;font-family:'Oswald';font-weight:500;letter-spacing:2px;text-transform:uppercase;font-size:12px;color:var(--gold2);margin:8px 0 14px}
+.fab-row{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:7;display:flex;gap:10px}
+.fab{background:rgba(12,18,25,.85);backdrop-filter:blur(10px);border:1px solid #243344;color:var(--muted);padding:10px 18px;border-radius:999px;font-size:13px;letter-spacing:1px}
+.fab.gold{border-color:var(--gold);color:var(--gold)}
+.card-btn{display:block;margin:18px auto 0;background:none;border:1px solid #243344;color:var(--muted);font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:10px 18px;border-radius:999px}
+.trades{display:flex;flex-direction:column;gap:8px}
+.trade{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid #1C2A3A;border-radius:12px;padding:14px 16px}
+.trade.mine{border-color:rgba(200,169,81,.4);background:rgba(200,169,81,.05)}
+.trade-wk{font-family:'Oswald';font-weight:600;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);min-width:64px}
+.trade-sum{font-size:13px;color:#B8CCD8}
+@media(max-width:420px){.perf-wrap{flex-direction:column}}
+```
+
+## `public/app.js`
+
+```js
+const BENCH = new Set(["BN","BE","BENCH","IR","TAXI","RES","RESERVE","NA",""]);
+const MY = "alastairl";
+const TEAMFIX = { WAS:"WSH", JAC:"JAX", LA:"LAR", OAK:"LV", LVR:"LV", GNB:"GB", KAN:"KC", NWE:"NE", NOR:"NO", SFO:"SF", TAM:"TB", ARZ:"ARI" };
+const norm = s => String(s ?? "").trim().toLowerCase();
+const round2 = n => Math.round(n * 100) / 100;
+const fmt = n => Number(n).toFixed(2);
+let STATE = { seed: null, rows: [], slots: null, comm: null, trades: null };
+
+async function readText(names) {
+  if (window.fs && window.fs.readFile) for (const n of names) { try { return await window.fs.readFile(n, { encoding: "utf8" }); } catch (_) {} }
+  for (const n of names) { try { const r = await fetch(n); if (r.ok) return await r.text(); } catch (_) {} }
+  throw new Error("not found");
+}
+const readJSON = async n => JSON.parse(await readText(n));
+const parseCSV = t => Papa.parse(t, { header: true, dynamicTyping: true, skipEmptyLines: true }).data
+  .filter(r => r && r.Owner != null && r.Week != null)
+  .map(r => ({ owner: norm(r.Owner), week: +r.Week, player: r.Player, pos: (r.Position||"").toString().toUpperCase(),
+    nfl: (r.NFL||"").toString().toUpperCase(), slot: norm(r.Fantasy), pts: +r.Points || 0 }));
+
+async function load() {
+  STATE.seed = await readJSON(["data/season.seed.json", "season.seed.json"]);
+  try { STATE.rows = parseCSV(await readText(["data/all-weeks.csv", "all-weeks.csv", "all weeks data.csv"])); } catch (_) {}
+  try { STATE.slots = await readJSON(["data/nfl-slots.json", "nfl-slots.json"]); } catch (_) {}
+  try { STATE.comm = await readJSON(["data/commentary.json", "commentary.json"]); } catch (_) {}
+  try { STATE.trades = await readJSON(["data/trades.json", "trades.json"]); } catch (_) {}
+  rerender(); confetti(); wireUpload();
+}
+function rerender() { render(build()); wireDots(); }
+
+const weekSum = (owner, wk, starters) => STATE.rows.filter(r => r.owner===owner && r.week===wk && (!starters||!BENCH.has(r.slot))).reduce((s,r)=>s+r.pts,0);
+const topPlayers = (owner, wk, starters, n=4) => STATE.rows.filter(r => r.owner===owner && r.week===wk && (!starters||!BENCH.has(r.slot)))
+  .sort((a,b)=>b.pts-a.pts).slice(0,n).map(r=>({player:r.player,pos:r.pos,pts:round2(r.pts)}));
+
+function timelineFor(wk, opp, starters) {
+  if (!STATE.slots || !STATE.slots[wk]) return null;
+  const teams = STATE.slots[wk], fix = ab => TEAMFIX[ab] || ab;
+  const collect = owner => { const byTime = {}; let unknown = 0;
+    STATE.rows.filter(r=>r.owner===owner&&r.week===wk&&(!starters||!BENCH.has(r.slot)))
+      .forEach(r=>{ const t=teams[fix(r.nfl)]; if(t) byTime[t]=(byTime[t]||0)+r.pts; else unknown+=r.pts; });
+    return { byTime, unknown }; };
+  const A = collect(MY), B = collect(opp);
+  const times = [...new Set([...Object.keys(A.byTime), ...Object.keys(B.byTime)])].sort();
+  if (times.length < 2) return null;
+  let ca=0, cb=0;
+  const pts = times.map(t => { ca+=A.byTime[t]||0; cb+=B.byTime[t]||0; return { label: slotLabel(t), me: round2(ca), them: round2(cb) }; });
+  if (A.unknown || B.unknown) { ca+=A.unknown; cb+=B.unknown; pts.push({ label:"Final", me:round2(ca), them:round2(cb) }); }
+  return pts;
+}
+function slotLabel(iso) {
+  const d = new Date(iso);
+  const wd = d.toLocaleString("en-US",{weekday:"short",timeZone:"America/New_York"});
+  const hr = +d.toLocaleString("en-US",{hour:"2-digit",hour12:false,timeZone:"America/New_York"});
+  if (wd==="Thu") return "Thu"; if (wd==="Mon") return "Mon"; if (wd==="Sat") return "Sat";
+  if (wd==="Sun") return hr<15 ? "Sun early" : hr<19 ? "Sun late" : "Sun night"; return wd;
+}
+function narrative(tl) {
+  if (!tl || tl.length<2) return "";
+  const lead = tl.map(p=>p.me===p.them?0:(p.me>p.them?1:-1));
+  const end = lead[lead.length-1], first = lead.find(v=>v!==0)||0;
+  const changes = lead.filter((v,i)=>i&&v!==lead[i-1]&&v!==0).length;
+  if (end>0 && lead.every(v=>v>=0)) return "Led wire-to-wire.";
+  if (end>0 && first<0) return "Came from behind to win it.";
+  if (end<0 && lead.every(v=>v<=0)) return "Behind from the first whistle.";
+  if (changes>=2) return "A genuine back-and-forth.";
+  return "";
+}
+
+function build() {
+  const { seed, rows, comm } = STATE, hasCSV = rows.length > 0;
+  let starters = true, verified = false;
+  if (hasCSV) {
+    const score = only => seed.matches.reduce((a,m)=>a+(Math.abs(weekSum(MY,m.week,only)-m.mine)<0.5?1:0),0);
+    const sOnly = score(true), sAll = score(false);
+    starters = sOnly >= sAll; verified = Math.max(sOnly,sAll) >= seed.matches.length-1;
+  }
+  const matches = seed.matches.map(m => {
+    let { mine, them } = m, topMe=null, topOpp=null, bench=null, tl=null;
+    const oh = m.handle.toLowerCase();
+    if (hasCSV) {
+      const cm = weekSum(MY,m.week,starters), co = weekSum(oh,m.week,starters);
+      if (cm>0){ mine=round2(cm); topMe=topPlayers(MY,m.week,starters); bench=round2(weekSum(MY,m.week,false)-cm); }
+      if (co>0){ them=round2(co); topOpp=topPlayers(oh,m.week,starters); }
+      tl = timelineFor(m.week, oh, starters);
+    }
+    const commentary = (comm && comm[m.week]) || m.commentary;
+    return { ...m, mine, them, topMe, topOpp, bench, tl, story: narrative(tl), commentary };
+  });
+  const wins = matches.filter(m=>m.mine>m.them).length, tot = matches.reduce((s,m)=>s+m.mine,0);
+  const stats = { wins, losses: matches.length-wins, totalPoints: round2(tot), avg: round2(tot/matches.length),
+    high: Math.max(...matches.map(m=>m.mine)), bestMargin: round2(Math.max(...matches.map(m=>m.mine-m.them))) };
+  return { ...seed, matches, stats, verified, trades: STATE.trades };
+}
+
+function panel(html, opts={}) {
+  const s = document.createElement("section"); s.className = "panel " + (opts.cls||"");
+  s.innerHTML = `<div class="bg"></div><div class="scrim"></div><div class="content">${html}</div>` + (opts.hint?`<div class="hint">swipe up</div>`:"");
+  return s;
+}
+let MATCHCACHE = [];
+function render(d) {
+  const deck = document.getElementById("deck"); deck.innerHTML = ""; MATCHCACHE = d.matches;
+  const s = d.stats;
+  deck.appendChild(panel(`<div class="eyebrow">${d.league} · ${d.season}</div><span class="trophy">🏆</span>
+    <h1 class="bigname">Fourth &amp;<br>Golda Meir</h1><div class="subline">Champions</div>
+    ${d.verified?`<div class="verified">verified from full player data</div>`:``}`, { hint:true }));
+  deck.appendChild(panel(`<div class="panel-title">The Season in Numbers</div><div class="stat-grid">
+    <div class="stat"><div class="n g">${s.wins}</div><div class="l">Wins</div></div>
+    <div class="stat"><div class="n r">${s.losses}</div><div class="l">Losses</div></div>
+    <div class="stat"><div class="n">${s.totalPoints.toFixed(1)}</div><div class="l">Total Points</div></div>
+    <div class="stat"><div class="n">${s.avg}</div><div class="l">Avg / Week</div></div>
+    <div class="stat"><div class="n">${fmt(s.high)}</div><div class="l">High Score</div></div>
+    <div class="stat"><div class="n">+${fmt(s.bestMargin)}</div><div class="l">Best Margin</div></div></div>`));
+  d.matches.filter(m=>!m.playoff).forEach((m)=>deck.appendChild(matchPanel(m, d.matches.indexOf(m))));
+  deck.appendChild(panel(`<div class="bye"><div class="icon">🛋️</div>
+    <div class="bigname" style="font-size:clamp(32px,9vw,56px)">Week ${d.playoffStart}</div>
+    <div class="subline">First-Round Bye · Earned</div>
+    <p class="m-report" style="text-align:center;margin-top:20px">Top seeding. While the league fought through Round 1, we rested and prepared.</p></div>`));
+  d.matches.filter(m=>m.playoff).forEach((m)=>deck.appendChild(matchPanel(m, d.matches.indexOf(m))));
+  if (d.trades && d.trades.length) deck.appendChild(tradesPanel(d.trades));
+  deck.appendChild(panel(`<div style="text-align:center"><span class="trophy">🏆</span>
+    <h1 class="bigname">2025<br>Champions</h1><div class="subline">Borehamwood Plancy League</div>
+    <button class="cta" onclick="shareIt()">Share the Glory</button></div>`, { cls:"finale" }));
+}
+function perf(title, list) {
+  if (!list || !list.length) return "";
+  return `<div class="perf"><div class="perf-h">${title}</div>${list.map((p,i)=>
+    `<div class="perf-row"><span class="perf-rank">${i+1}</span><span class="perf-name">${p.player||"—"} <em>${p.pos||""}</em></span><span class="perf-pts">${fmt(p.pts)}</span></div>`).join("")}</div>`;
+}
+function sparkline(tl) {
+  if (!tl) return "";
+  const W=300,H=64,pad=4, max=Math.max(...tl.flatMap(p=>[p.me,p.them]),1);
+  const x=i=>pad+(i/Math.max(tl.length-1,1))*(W-2*pad), y=v=>H-pad-(v/max)*(H-2*pad);
+  const ln=k=>tl.map((p,i)=>`${i?"L":"M"}${x(i).toFixed(1)} ${y(p[k]).toFixed(1)}`).join(" ");
+  return `<div class="spark-wrap"><div class="spark-legend"><span><i class="dot-me"></i>Golda Meir</span><span><i class="dot-them"></i>Opponent</span></div>
+    <svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path d="${ln("them")}" fill="none" stroke="#5A7080" stroke-width="2"/>
+      <path d="${ln("me")}" fill="none" stroke="#C8A951" stroke-width="2.5"/></svg>
+    <div class="spark-x">${tl.map(p=>`<span>${p.label}</span>`).join("")}</div></div>`;
+}
+function matchPanel(m, idx) {
+  const won=m.mine>m.them, diff=Math.abs(m.mine-m.them).toFixed(2);
+  return panel(`<div class="m-week ${m.playoff?"po":""}">${m.playoff?"Playoff · ":""}Week ${m.week}</div>
+    <div class="m-result ${won?"w":"l"}">${won?"Win":"Loss"}</div>
+    <div class="m-score"><div class="m-side me"><div class="t">Golda Meir</div><div class="p ${won?"win gold":"lose"}">${fmt(m.mine)}</div></div>
+      <div class="m-sep">–</div><div class="m-side them"><div class="t">${m.opp}</div><div class="p ${won?"lose":"win"}">${fmt(m.them)}</div></div></div>
+    ${m.tl?sparkline(m.tl):""}${m.story?`<div class="story">${m.story}</div>`:""}
+    <p class="m-report">${m.commentary || (won?`A ${diff}-point win over ${m.opp}.`:`Beaten by ${m.opp} by ${diff}.`)}</p>
+    ${m.bench!=null?`<div class="bench-stat">Points left on your bench: <b>${fmt(m.bench)}</b></div>`:``}
+    <div class="perf-wrap">${perf("Your top scorers",m.topMe)}${perf(m.opp+" top scorers",m.topOpp)}</div>
+    <button class="card-btn" onclick="makeCard(${idx})">📸 Save match card</button>`, { cls:"match" });
+}
+function tradesPanel(trades) {
+  return panel(`<div class="panel-title">Deadline Moves</div>
+    <div class="trades">${trades.map(t=>`<div class="trade ${t.parties&&t.parties.includes(STATE.seed.champion)?"mine":""}">
+      <div class="trade-wk">Week ${t.week}</div><div class="trade-sum">${t.summary||(t.parties||[]).join(" ↔ ")}</div></div>`).join("")}</div>
+    <p class="m-report" style="text-align:center;margin-top:14px;color:#5A7080">Every deal that shaped the season.</p>`);
+}
+
+async function makeCard(idx) {
+  const m = MATCHCACHE[idx], won = m.mine > m.them;
+  await (document.fonts ? document.fonts.ready : Promise.resolve());
+  const c = document.getElementById("cardcanvas"); c.width = 1080; c.height = 1350;
+  const x = c.getContext("2d");
+  x.fillStyle = "#05080D"; x.fillRect(0,0,1080,1350);
+  const g = x.createRadialGradient(540,180,40,540,180,820); g.addColorStop(0,"rgba(200,169,81,.20)"); g.addColorStop(1,"transparent");
+  x.fillStyle = g; x.fillRect(0,0,1080,1350); x.textAlign = "center";
+  x.fillStyle = "#C8A951"; x.font = "600 30px Oswald, sans-serif"; x.fillText("BOREHAMWOOD PLANCY LEAGUE · 2025", 540, 130);
+  x.fillStyle = won ? "#1DB954" : "#E53E3E"; x.font = "700 150px Oswald, sans-serif"; x.fillText(won ? "WIN" : "LOSS", 540, 330);
+  x.fillStyle = "#F0F4F8"; x.font = "600 38px Oswald, sans-serif"; x.fillText((m.playoff?"PLAYOFF · ":"") + "WEEK " + m.week, 540, 400);
+  x.font = "700 120px Oswald, sans-serif"; x.fillStyle = won ? "#C8A951" : "#8A9BAB"; x.textAlign = "right"; x.fillText(fmt(m.mine), 500, 600);
+  x.fillStyle = "#5A7080"; x.textAlign = "center"; x.font = "400 60px Oswald, sans-serif"; x.fillText("–", 540, 590);
+  x.fillStyle = won ? "#8A9BAB" : "#C8A951"; x.textAlign = "left"; x.font = "700 120px Oswald, sans-serif"; x.fillText(fmt(m.them), 580, 600);
+  x.textAlign = "center"; x.fillStyle = "#8A9BAB"; x.font = "500 34px Inter, sans-serif"; x.fillText("Fourth & Golda Meir", 360, 660); x.fillText(m.opp, 720, 660);
+  if (m.story) { x.fillStyle = "#F0D070"; x.font = "600 34px Oswald, sans-serif"; x.fillText(m.story.toUpperCase(), 540, 760); }
+  x.fillStyle = "#B8CCD8"; x.font = "400 36px Inter, sans-serif"; wrap(x, m.commentary || "", 540, 860, 920, 50);
+  x.fillStyle = "#C8A951"; x.font = "600 26px Oswald, sans-serif"; x.fillText("🏆 2025 CHAMPIONS", 540, 1290);
+  c.toBlob(b => { const file = new File([b], `golda-meir-week-${m.week}.png`, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: "Match card" });
+    else { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = file.name; a.click(); } });
+}
+function wrap(x, text, cx, cy, maxW, lh) {
+  const words = String(text).split(" "); let line = "", y = cy;
+  for (const w of words) { if (x.measureText(line + w).width > maxW && line) { x.fillText(line.trim(), cx, y); line = ""; y += lh; } line += w + " "; }
+  x.fillText(line.trim(), cx, y);
+}
+
+function wireUpload() {
+  const btn = document.getElementById("upload"), input = document.getElementById("fileinput");
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const text = await f.text();
+    if (f.name.endsWith(".csv")) STATE.rows = parseCSV(text);
+    else { const j = JSON.parse(text); if (Array.isArray(j)) STATE.trades = j; else if (j.matches) STATE.seed = j; else STATE.comm = j; }
+    rerender(); alert(`Loaded ${f.name}. (Preview only — commit it to public/data to keep it.)`);
+  });
+}
+function wireDots() {
+  const panels = [...document.querySelectorAll(".panel")], dots = document.getElementById("dots");
+  dots.innerHTML = panels.map(()=>"<b></b>").join(""); const marks = [...dots.children];
+  const io = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ const i=panels.indexOf(e.target); marks.forEach((d,j)=>d.classList.toggle("on",j===i)); }}),{threshold:.6});
+  panels.forEach(p=>io.observe(p));
+}
+function shareIt() {
+  const t = "Fourth and Golda Meir — 2025 Borehamwood Plancy League Champions 🏆";
+  if (navigator.share) navigator.share({ title:t, url:location.href });
+  else navigator.clipboard.writeText(location.href).then(()=>alert("Link copied! 🏆"));
+}
+document.getElementById("share").addEventListener("click", shareIt);
+function confetti() {
+  const cv=document.getElementById("fx"),ctx=cv.getContext("2d");
+  const rs=()=>{cv.width=innerWidth;cv.height=innerHeight;};rs();addEventListener("resize",rs);
+  const cols=["#C8A951","#F0D070","#1DB954","#60a5fa","#fff"];
+  const ps=Array.from({length:80},()=>({x:Math.random()*innerWidth,y:Math.random()*-innerHeight,r:Math.random()*6+3,spd:Math.random()*1.1+.4,c:cols[~~(Math.random()*cols.length)],a:0}));
+  (function loop(){ctx.clearRect(0,0,cv.width,cv.height);ps.forEach(p=>{p.a+=.012;p.y+=p.spd;if(p.y>cv.height+10){p.y=-10;p.x=Math.random()*cv.width;}const t=Math.sin(p.a)*10;ctx.beginPath();ctx.lineWidth=p.r*.5;ctx.strokeStyle=p.c;ctx.moveTo(p.x+t+p.r/3,p.y);ctx.lineTo(p.x+t,p.y+p.r);ctx.stroke();});requestAnimationFrame(loop);})();
+}
+load();
+```
+
+## `public/data/season.seed.json`
+
+```json
+{
+  "champion": "Fourth and Golda Meir",
+  "handle": "AlastairL",
+  "league": "Borehamwood Plancy League",
+  "season": 2025,
+  "playoffStart": 15,
+  "matches": [
+    { "week": 1,  "playoff": false, "opp": "Love Thy Naber",  "handle": "saulgoat", "mine": 95.08,  "them": 88.72,  "commentary": "Ninety-five points in Week 1 — we have seen pub teams manage more — and yet the win goes in the book in permanent ink. Love Thy Naber loved their neighbour right up until kickoff, then learned neighbourliness scores no points. Ugly, necessary, ours." },
+    { "week": 2,  "playoff": false, "opp": "A Rookie Error",  "handle": "drjkay",   "mine": 133.88, "them": 126.08, "commentary": "A Rookie Error by name, a rookie error by nature: chiefly, turning up against a side rounding into ominous form. 133.88 to 126.08. Competitive, respectable, crushed all the same." },
+    { "week": 3,  "playoff": false, "opp": "Plancey Neutral", "handle": "dpol",     "mine": 131.84, "them": 131.86, "commentary": "We must, regrettably, convene an inquiry. 131.84. 131.86. A margin invisible to the naked eye, felt only in the soul, forever. dpol did not win this so much as the universe quietly mugged us in a car park. We will not be taking questions." },
+    { "week": 4,  "playoff": false, "opp": "J'Allen Plancey", "handle": "sanfbe",   "mine": 140.52, "them": 151.26, "commentary": "One hundred and forty points, and beaten. Some weeks you do everything right and the man opposite simply rolls a natural twenty. sanfbe rolled a twenty. We tip the cap and grind the teeth — mostly grind the teeth." },
+    { "week": 5,  "playoff": false, "opp": "This One Really", "handle": "GSac",     "mine": 127.72, "them": 121.50, "commentary": "After back-to-back gut-punches, the response of champions: no flair, no fireworks, just the quiet ruthless taking-out of the bins. GSac hung around, then was politely shown the door. The ship, gloriously, stops taking on water." },
+    { "week": 6,  "playoff": false, "opp": "Team Benjlev",    "handle": "benjlev",  "mine": 115.04, "them": 103.54, "commentary": "A workmanlike, Tuesday-afternoon-at-the-office victory. No drama, no highlight reel, 115 honest points and a handshake held a fraction too long to be entirely friendly. Benjlev: dispatched." },
+    { "week": 7,  "playoff": false, "opp": "Denver Brochos",  "handle": "joshjr11", "mine": 156.58, "them": 119.98, "commentary": "156.58. Season high. We apologise to absolutely no one. The Brochos arrived with a game plan and left with a learning experience and a 36-point hole where their dignity used to be. This is the tape we show the grandchildren." },
+    { "week": 8,  "playoff": false, "opp": "Love Thy Naber",  "handle": "saulgoat", "mine": 123.88, "them": 108.88, "commentary": "The sequel nobody demanded. saulgoat returned for a rematch and received, with interest, the same answer phrased more firmly. Two from two on the season against Naber. Love, it transpires, is not enough." },
+    { "week": 9,  "playoff": false, "opp": "A Rookie Error",  "handle": "drjkay",   "mine": 154.96, "them": 119.10, "commentary": "154.96 — the second 150-burger in three weeks. This team is not in form; it is in a different postcode to form, sending postcards. drjkay never stood a chance and, deep down, knew it." },
+    { "week": 10, "playoff": false, "opp": "Plancey Neutral", "handle": "dpol",     "mine": 148.70, "them": 127.70, "commentary": "REVENGE. Capitals entirely deserved. The side that stole 0.02 points and a piece of our soul in Week 3 returned and was beaten by twenty-one. Served cold, served with a small professional smile. We are not over Week 3; we shall simply pretend we are." },
+    { "week": 11, "playoff": false, "opp": "J'Allen Plancey", "handle": "sanfbe",   "mine": 140.74, "them": 160.48, "commentary": "Once more unto the breach against sanfbe, and once more a number with no business existing — 160.48. We scored 140 and lost; the second time this nemesis has done it. A rivalry is hereby formally declared. Lawyers have been instructed." },
+    { "week": 12, "playoff": false, "opp": "This One Really", "handle": "GSac",     "mine": 133.56, "them": 202.36, "commentary": "Two hundred and two point three six. Contractually obliged to report it, we refuse to dignify it. Not a fantasy match — a natural disaster with a box score. We put up 133, a winning number on most planets, and were removed from the premises. We never speak of the Week of GSac again." },
+    { "week": 13, "playoff": false, "opp": "Team Benjlev",    "handle": "benjlev",  "mine": 95.02,  "them": 110.14, "commentary": "The wobble. Every champion has one, usually filmed and circulated widely. 95.02, our worst of the year, and Benjlev took the points and the bragging rights. Three losses in four. The obituaries were being typeset — prematurely, as it turned out." },
+    { "week": 14, "playoff": false, "opp": "Denver Brochos",  "handle": "joshjr11", "mine": 130.84, "them": 113.86, "commentary": "Win and the bye is yours; no pressure beyond the entire complexion of the playoffs. The Brochos, beaten heavily once already, were beaten again — this time with a top-two finish and a week off as the prize. Champions do their best work beside a door marked EXIT." },
+    { "week": 16, "playoff": true,  "opp": "Love Thy Naber",  "handle": "saulgoat", "mine": 130.50, "them": 113.46, "commentary": "Rested, ironed, dangerous. The bye did precisely what byes are for. saulgoat, met a third time, made a brief and spirited nuisance of themselves before being escorted firmly into the off-season. Final booked. The throne within touching distance." },
+    { "week": 17, "playoff": true,  "opp": "Plancey Neutral", "handle": "dpol",     "mine": 143.96, "them": 118.58, "commentary": "And so it ends where it began to ache. dpol — author of the 0.02 — stood between us and the title, scripting so on-the-nose you'd reject it. We led from the first whistle and never let go. The two-hundredths of a point, repaid with twenty-five and change. CHAMPIONS. You may now, finally, speak of Week 3." }
+  ]
+}
+```
+
+-----
+
+### Setup, in order
+
+```bash
+mkdir borehamwood-champions-2025 && cd $_
+git init && npm init -y && npm i papaparse
+# create every file above at its path; add your data at public/data/all-weeks.csv
+node scripts/nfl-slots.js      # timelines
+node scripts/fetch-trades.js   # trades
+npx serve public               # preview
+# optional banter: ANTHROPIC_API_KEY=sk-... node scripts/generate-commentary.js
+# deploy: drag the public folder to app.netlify.com/drop
+```
