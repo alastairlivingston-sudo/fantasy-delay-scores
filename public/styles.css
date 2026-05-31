@@ -66,16 +66,30 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:'Inte
 .m-sep{display:flex;align-items:center;padding:0 10px;color:var(--muted);font-family:'Oswald'}
 .m-report{font-size:14px;line-height:1.75;color:#C4D7DC}
 
-.callout{margin-top:14px;border-left:3px solid;border-radius:10px;padding:12px 14px;background:rgba(255,255,255,.025)}
+.callout{margin-top:14px;border-left:3px solid;border-radius:10px;padding:0;background:rgba(255,255,255,.025)}
 .callout.decision{border-color:var(--gold)}
 .callout.drawer{border-color:var(--teal2)}
-.callout-h{font:600 10px/1 'Oswald';letter-spacing:2px;text-transform:uppercase;margin-bottom:7px}
+.callout-h{font:600 10px/1 'Oswald';letter-spacing:2px;text-transform:uppercase;
+  list-style:none;display:flex;justify-content:space-between;align-items:center;
+  padding:13px 14px;margin:0;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+.callout-h::-webkit-details-marker{display:none}
+.callout-h::after{content:'›';font:400 18px/1 serif;transition:transform .18s;margin-left:6px}
+details[open]>.callout-h::after{transform:rotate(90deg)}
 .callout.decision .callout-h{color:var(--gold)}
 .callout.drawer .callout-h{color:var(--teal2)}
-.callout p{font-size:13px;line-height:1.65;color:#C4D7DC}
+.callout p{font-size:13px;line-height:1.65;color:#C4D7DC;margin:0;padding:0 14px 13px}
 .callout b{color:var(--cream)}.callout em{color:var(--muted);font-style:normal;font-size:11px}
+/* Top scorers collapsible */
+details.perf-details{margin-top:14px}
+.perf-sum{list-style:none;-webkit-appearance:none;font-size:9px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--muted);cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+  padding:10px 0;border-top:1px solid var(--line);user-select:none;-webkit-tap-highlight-color:transparent}
+.perf-sum::-webkit-details-marker{display:none}
+.perf-sum::after{content:'›';font:400 16px/1 serif;transition:transform .18s}
+details.perf-details[open] .perf-sum::after{transform:rotate(90deg)}
+details.perf-details .perf-wrap{margin-top:8px}
 
-.perf-wrap{display:flex;gap:12px;margin-top:16px}
+.perf-wrap{display:flex;gap:12px}
 .perf{flex:1;background:rgba(14,36,48,.6);border:1px solid var(--line);border-radius:12px;padding:12px}
 .perf-h{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
 .perf-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px}

@@ -207,9 +207,9 @@ function matchPanel(m, idx) {
     ${m.tl?sparkline(m.tl):""}
     ${MATCH_TITLES[m.week]?`<div class="m-title">${MATCH_TITLES[m.week]}</div>`:""}
     <p class="m-report">${m.commentary || (won?`A ${diff}-point win over ${m.opp}.`:`Beaten by ${m.opp} by ${diff}.`)}</p>
-    ${m.decision?`<div class="callout decision"><div class="callout-h">Starting Decisions</div><p>${m.decision}</p></div>`:``}
-    ${m.drawer?`<div class="callout drawer"><div class="callout-h">Benchwatch · The Drawer</div><p>Highest-scoring player we left on the bench: <b>${m.drawer.player}</b> <em>${m.drawer.pos}</em> — <b>${fmt(m.drawer.pts)}</b>.${m.bench!=null?` Total points stranded on the pine: <b>${fmt(m.bench)}</b>.`:``}</p></div>`:``}
-    <div class="perf-wrap">${perf("Our top scorers",m.topMe)}${perf(m.opp+" top scorers",m.topOpp)}</div>`, { cls:"match" });
+    ${m.decision?`<details class="callout decision"><summary class="callout-h">Starting Decisions</summary><p>${m.decision}</p></details>`:``}
+    ${m.drawer?`<details class="callout drawer"><summary class="callout-h">Benchwatch · The Drawer</summary><p>Highest-scoring player we left on the bench: <b>${m.drawer.player}</b> <em>${m.drawer.pos}</em> — <b>${fmt(m.drawer.pts)}</b>.${m.bench!=null?` Total points stranded on the pine: <b>${fmt(m.bench)}</b>.`:``}</p></details>`:``}
+    ${(m.topMe||m.topOpp)?`<details class="perf-details"><summary class="perf-sum">Top Scorers</summary><div class="perf-wrap">${perf("Our top scorers",m.topMe)}${perf(m.opp+" top scorers",m.topOpp)}</div></details>`:``}`, { cls:"match" });
 }
 function tradesPanel(trades) {
   const mine = STATE.seed.champion;
