@@ -3,7 +3,7 @@
 const BENCH = new Set(["bn","be","bench","ir","taxi","res","reserve","na",""]);
 const MY = "alastairl";
 const TEAMFIX = { WAS:"WSH", JAC:"JAX", LA:"LAR", OAK:"LV", LVR:"LV", GNB:"GB", KAN:"KC", NWE:"NE", NOR:"NO", SFO:"SF", TAM:"TB", ARZ:"ARI" };
-const LOGO = "assets/logo.png";
+const LOGO = "assets/logo-photo.jpeg";
 const LOGO_SM = "assets/logo_sm.png";
 const PHOTO_TEAM = "assets/celebration-team.jpeg";
 const PHOTO_SHOP = "assets/celebration-shop.jpeg";
