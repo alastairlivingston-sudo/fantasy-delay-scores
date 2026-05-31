@@ -140,8 +140,7 @@ function render(d) {
   // TRADES (only when present)
   if (d.trades && d.trades.length) deck.appendChild(tradesPanel(d.trades));
 
-  // FINALE: merch + celebration + champions
-  deck.appendChild(merchPanel());
+  // FINALE: celebration + champions (merch SVGs removed — real photos slot in via celebrationPanel)
   deck.appendChild(celebrationPanel());
   deck.appendChild(panel(`<div class="finale-hero">
     <img class="crest big" src="${LOGO}" alt="crest"/>
