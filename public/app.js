@@ -8,6 +8,24 @@ const LOGO_SM = "assets/logo_sm.png";
 const PHOTO_TEAM = "assets/celebration-team.jpeg";
 const PHOTO_SHOP = "assets/celebration-shop.jpeg";
 const PHOTO_LOGO = "assets/logo-photo.jpeg";
+const MATCH_TITLES = {
+  1:  "The Committee Opens",
+  2:  "The Kicker Files",
+  3:  "0.02",
+  4:  "140 and Still Lost",
+  5:  "Fields Paroled",
+  6:  "Structural Quality Wins",
+  7:  "The Tape",
+  8:  "Two from Two",
+  9:  "The Tight End Incident",
+  10: "The 0.02 Repaid",
+  11: "Josh Allen Breaks Physics",
+  12: "202.36",
+  13: "The Stafford Incident",
+  14: "The Bye Secured",
+  16: "The Final is Booked",
+  17: "The Championship Maye",
+};
 const norm = s => String(s ?? "").trim().toLowerCase();
 const round2 = n => Math.round(n * 100) / 100;
 const fmt = n => Number(n).toFixed(2);
@@ -119,15 +137,27 @@ function render(d) {
     <div class="plancy"><span class="pill">Plancy Champion</span><span class="pill ghost">Plancy Positive</span></div>
     <p class="tag">Fourth and goal, every week. We went for it. We are, and shall remain, <b>plancy positive</b>.</p>`, { hint:true, cls:"home" }));
 
-  // STATS
-  deck.appendChild(panel(`<div class="panel-title">The Season in Numbers</div><div class="stat-grid">
-    <div class="stat"><div class="n g">${s.wins}</div><div class="l">Wins</div></div>
-    <div class="stat"><div class="n r">${s.losses}</div><div class="l">Losses</div></div>
-    <div class="stat"><div class="n">${s.totalPoints.toFixed(1)}</div><div class="l">Total Points</div></div>
-    <div class="stat"><div class="n">${s.avg}</div><div class="l">Avg / Week</div></div>
-    <div class="stat"><div class="n">${fmt(s.high)}</div><div class="l">High Score</div></div>
-    <div class="stat"><div class="n">+${fmt(s.bestMargin)}</div><div class="l">Best Margin</div></div></div>
-    ${s.drawerTotal?`<div class="drawer-tot">Points stranded in <b>The Fields Drawer</b> across the season: <b>${fmt(s.drawerTotal)}</b>. We benched him every week. We won the title. No further questions.</div>`:``}`));
+  // CHAMPION DECLARATIONS
+  deck.appendChild(panel(`<div class="panel-title">Champion on Record</div>
+    <div class="banter-deck">
+      <div class="banter-hero">
+        <div class="banter-hero-text">Plancy<br>World Champion</div>
+        <div class="banter-hero-sub">Borehamwood Plancy League · 2025</div>
+      </div>
+      <div class="banter-chips">
+        <span class="banter-chip">Commissioner</span>
+        <span class="banter-chip">Champion</span>
+        <span class="banter-chip">Clutch</span>
+      </div>
+      <div class="banter-belt">
+        <span class="banter-belt-icon">🏆</span>
+        <div class="banter-belt-text">Two-Time World Champion</div>
+        <div class="banter-belt-sub">The belt stays in Borehamwood</div>
+      </div>
+      <div class="banter-pill-row"><span class="banter-big-pill">Plancy Positive</span></div>
+      <div class="banter-raw">Undisputed. No caveats. No footnotes.</div>
+      <div class="banter-raw banter-aside">Fuck the asterisk.</div>
+    </div>`));
 
   // REGULAR SEASON
   d.matches.filter(m=>!m.playoff).forEach((m)=>deck.appendChild(matchPanel(m, d.matches.indexOf(m))));
@@ -177,7 +207,8 @@ function matchPanel(m, idx) {
     <div class="m-result ${won?"w":"l"}">${won?"Win":"Loss"}</div>
     <div class="m-score"><div class="m-side me"><div class="t">Goalda Meir</div><div class="p ${won?"win gold":"lose"}">${fmt(m.mine)}</div></div>
       <div class="m-sep">–</div><div class="m-side them"><div class="t">${m.opp}</div><div class="p ${won?"lose":"win"}">${fmt(m.them)}</div></div></div>
-    ${m.tl?sparkline(m.tl):""}${m.story?`<div class="story">${m.story}</div>`:""}
+    ${m.tl?sparkline(m.tl):""}
+    ${MATCH_TITLES[m.week]?`<div class="m-title">${MATCH_TITLES[m.week]}</div>`:""}
     <p class="m-report">${m.commentary || (won?`A ${diff}-point win over ${m.opp}.`:`Beaten by ${m.opp} by ${diff}.`)}</p>
     ${m.decision?`<div class="callout decision"><div class="callout-h">Starting Decisions</div><p>${m.decision}</p></div>`:``}
     ${m.drawer?`<div class="callout drawer"><div class="callout-h">Benchwatch · The Drawer</div><p>Highest-scoring player we left on the bench: <b>${m.drawer.player}</b> <em>${m.drawer.pos}</em> — <b>${fmt(m.drawer.pts)}</b>.${m.bench!=null?` Total points stranded on the pine: <b>${fmt(m.bench)}</b>.`:``}</p></div>`:``}
