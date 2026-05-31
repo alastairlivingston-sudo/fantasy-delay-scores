@@ -10,5 +10,8 @@
     "dev": "npx serve public -l 5173",
     "deploy": "netlify deploy --prod --dir public"
   },
-  "dependencies": { "papaparse": "^5.4.1" }
+  "dependencies": {
+    "papaparse": "^5.4.1",
+    "sharp": "^0.34.5"
+  }
 }
