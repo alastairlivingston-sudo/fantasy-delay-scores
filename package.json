@@ -1,0 +1,14 @@
+{
+  "name": "borehamwood-champions-2025",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "slots": "node scripts/nfl-slots.js",
+    "trades": "node scripts/fetch-trades.js",
+    "commentary": "node scripts/generate-commentary.js",
+    "data": "npm run slots && npm run trades",
+    "dev": "npx serve public -l 5173",
+    "deploy": "netlify deploy --prod --dir public"
+  },
+  "dependencies": { "papaparse": "^5.4.1" }
+}

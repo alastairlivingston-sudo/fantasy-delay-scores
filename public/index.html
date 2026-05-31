@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1"/>
+<meta name="theme-color" content="#05080D"/>
+<title>Fourth and Golda Meir · 2025 Champions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <canvas id="fx"></canvas>
+  <canvas id="cardcanvas" hidden></canvas>
+  <div id="dots" class="dots"></div>
+  <main id="deck" class="deck"></main>
+  <div class="fab-row">
+    <button id="upload" class="fab">+ Data</button>
+    <button id="share" class="fab gold">Share</button>
+  </div>
+  <input id="fileinput" type="file" accept=".csv,.json" hidden />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
