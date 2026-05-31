@@ -135,6 +135,12 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:'Inte
 .tile-sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .ring-band{width:56px;height:56px;border-radius:50%;background:conic-gradient(#8B6914,#E6C766,#8B6914,#E6C766,#8B6914);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 7px #091520, 0 6px 18px rgba(0,0,0,.5);margin-bottom:8px}
 .ring-band span{font-size:22px}
+/* Photo celebration tiles */
+.tile-photo{background-size:cover;background-position:center;padding:0;justify-content:flex-end}
+.tile-hero{min-height:clamp(200px,52vw,260px)}
+.tile-sm-photo{min-height:clamp(130px,36vw,170px)}
+.photo-overlay{position:absolute;inset:0;border-radius:inherit;background:linear-gradient(to top,rgba(9,21,32,.9) 0%,rgba(9,21,32,.35) 55%,rgba(9,21,32,.05) 100%)}
+.tile-caption{position:relative;z-index:1;padding:10px 10px 14px;text-align:center;width:100%}
 .cele-row{display:flex;align-items:center;gap:14px;background:rgba(200,169,81,.07);border:1px solid rgba(200,169,81,.25);border-radius:14px;padding:14px 16px}
 .cele-banner-logo{width:clamp(40px,12vw,58px);flex-shrink:0;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5))}
 .cele-banner-text{flex:1}
@@ -144,6 +150,7 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:'Inte
 .finale-hero{text-align:center}
 .finale{justify-content:center}
 .finale-badge{margin-top:20px;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:rgba(200,169,81,.5);border:1px solid rgba(200,169,81,.2);border-radius:999px;padding:6px 18px;display:inline-block}
+.panel.finale .bg::after{background:var(--panel-photo,url(assets/logo.png)) center/cover no-repeat;opacity:.14;filter:none}
 
 /* settings cog + modal */
 .cog{position:fixed;top:calc(env(safe-area-inset-top) + 12px);right:12px;z-index:8;width:40px;height:40px;border-radius:50%;

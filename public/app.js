@@ -5,6 +5,9 @@ const MY = "alastairl";
 const TEAMFIX = { WAS:"WSH", JAC:"JAX", LA:"LAR", OAK:"LV", LVR:"LV", GNB:"GB", KAN:"KC", NWE:"NE", NOR:"NO", SFO:"SF", TAM:"TB", ARZ:"ARI" };
 const LOGO = "assets/logo.png";
 const LOGO_SM = "assets/logo_sm.png";
+const PHOTO_TEAM = "assets/celebration-team.jpeg";
+const PHOTO_SHOP = "assets/celebration-shop.jpeg";
+const PHOTO_LOGO = "assets/logo-photo.jpeg";
 const norm = s => String(s ?? "").trim().toLowerCase();
 const round2 = n => Math.round(n * 100) / 100;
 const fmt = n => Number(n).toFixed(2);
@@ -100,7 +103,8 @@ function build() {
 
 function panel(html, opts={}) {
   const s = document.createElement("section"); s.className = "panel " + (opts.cls||"");
-  s.innerHTML = `<div class="bg"></div><div class="scrim"></div><div class="content">${html}</div>` + (opts.hint?`<div class="hint">swipe up</div>`:"");
+  const bgStyle = opts.photo ? ` style="--panel-photo:url(${opts.photo})"` : "";
+  s.innerHTML = `<div class="bg"${bgStyle}></div><div class="scrim"></div><div class="content">${html}</div>` + (opts.hint?`<div class="hint">swipe up</div>`:"");
   return s;
 }
 let MATCHCACHE = [];
@@ -148,7 +152,7 @@ function render(d) {
     <div class="plancy"><span class="pill">Borehamwood Plancy League</span></div>
     <p class="tag">The throne stays in Borehamwood.<br><b>Plancy positive. Forever.</b></p>
     <div class="finale-badge"><span>EST. 2025 · PLANCY CHAMPIONS</span></div>
-    </div>`, { cls:"finale" }));
+    </div>`, { cls:"finale", photo: PHOTO_LOGO }));
 }
 
 function perf(title, list) {
@@ -212,28 +216,30 @@ function merchPanel() {
 }
 
 function celebrationPanel() {
-  // four equal-sized celebration tiles using the real logo
-  const bigLogo = `<div class="cele-tile tile-champion">
-    <img class="tile-logo" src="${LOGO}" alt="Fourth and Goalda Meir"/>
-    <div class="tile-label">Plancy Champions 2025</div>
-  </div>`;
-  const smLogoA = `<div class="cele-tile tile-gold">
-    <img class="tile-logo-sm" src="${LOGO_SM}" alt=""/>
-    <div class="tile-label">11 — 5</div>
-    <div class="tile-sub">Final record</div>
-  </div>`;
-  const smLogoB = `<div class="cele-tile tile-teal">
-    <img class="tile-logo-sm" src="${LOGO_SM}" alt=""/>
-    <div class="tile-label">Est. 2025</div>
-    <div class="tile-sub">Plancy Positive</div>
-  </div>`;
-  const ringTile = `<div class="cele-tile tile-ring">
-    <div class="ring-band"><span>🏆</span></div>
-    <div class="tile-label">MMXXV</div>
-    <div class="tile-sub">Borehamwood</div>
-  </div>`;
   return panel(`<div class="panel-title">The Celebration</div>
-    <div class="cele-mosaic">${bigLogo}${smLogoA}${smLogoB}${ringTile}</div>
+    <div class="cele-mosaic">
+      <div class="cele-tile tile-photo tile-hero tile-champion" style="background-image:url(${PHOTO_TEAM})">
+        <div class="photo-overlay"></div>
+        <div class="tile-caption">
+          <div class="tile-label">Plancy Champions 2025</div>
+          <div class="tile-sub">Borehamwood Plancy League</div>
+        </div>
+      </div>
+      <div class="cele-tile tile-photo tile-sm-photo tile-gold" style="background-image:url(${PHOTO_LOGO})">
+        <div class="photo-overlay"></div>
+        <div class="tile-caption">
+          <div class="tile-label">11 — 5</div>
+          <div class="tile-sub">Final record</div>
+        </div>
+      </div>
+      <div class="cele-tile tile-photo tile-sm-photo tile-teal" style="background-image:url(${PHOTO_SHOP})">
+        <div class="photo-overlay"></div>
+        <div class="tile-caption">
+          <div class="tile-label">Plancy Positive</div>
+          <div class="tile-sub">Est. 2025</div>
+        </div>
+      </div>
+    </div>
     <div class="cele-row">
       <img class="cele-banner-logo" src="${LOGO}" alt=""/>
       <div class="cele-banner-text"><div class="cele-banner-big">PLANCY POSITIVE</div><div class="cele-banner-small">Borehamwood Plancy League · Champions · 2025</div></div>
