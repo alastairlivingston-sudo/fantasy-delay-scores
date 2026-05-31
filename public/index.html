@@ -3,22 +3,42 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1"/>
-<meta name="theme-color" content="#05080D"/>
-<title>Fourth and Golda Meir · 2025 Champions</title>
+<meta name="theme-color" content="#0A1622"/>
+<title>Fourth and Goalda Meir · Plancy Champions 2025</title>
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg"/>
+<link rel="apple-touch-icon" href="assets/logo.svg"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
   <canvas id="fx"></canvas>
-  <canvas id="cardcanvas" hidden></canvas>
+
+  <button id="cog" class="cog" aria-label="Settings" title="Settings">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+
+  <div id="settings" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <span>League Office</span>
+        <button id="closeSettings" class="modal-x" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-note">Load a fresh <b>all-weeks.csv</b> or any generated JSON to preview locally. Nothing leaves your phone; commit it to <code>public/data</code> to keep it.</p>
+      <label class="modal-file">
+        <input id="fileinput" type="file" accept=".csv,.json" hidden/>
+        <span>Choose data file…</span>
+      </label>
+      <div class="modal-foot">Plancy positive since 2025.</div>
+    </div>
+  </div>
+
   <div id="dots" class="dots"></div>
   <main id="deck" class="deck"></main>
-  <div class="fab-row">
-    <button id="upload" class="fab">+ Data</button>
-    <button id="share" class="fab gold">Share</button>
-  </div>
-  <input id="fileinput" type="file" accept=".csv,.json" hidden />
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="app.js"></script>
 </body>

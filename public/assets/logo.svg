@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 460" width="400" height="460" role="img" aria-label="Fourth and Goalda Meir crest">
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4AA6B8"/>
+      <stop offset="1" stop-color="#2C6A78"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E6C766"/>
+      <stop offset="1" stop-color="#C8A951"/>
+    </linearGradient>
+    <radialGradient id="roundel" cx="0.5" cy="0.42" r="0.7">
+      <stop offset="0" stop-color="#22606C"/>
+      <stop offset="1" stop-color="#143C45"/>
+    </radialGradient>
+    <clipPath id="rclip"><circle cx="200" cy="212" r="78"/></clipPath>
+  </defs>
+
+  <!-- shield -->
+  <path d="M40,70 Q40,48 62,46 L338,46 Q360,48 360,70 L360,255 Q360,352 200,432 Q40,352 40,255 Z"
+        fill="#0A1622" stroke="#0A1622" stroke-width="10"/>
+  <path d="M52,76 Q52,58 70,57 L330,57 Q348,58 348,76 L348,252 Q348,340 200,414 Q52,340 52,252 Z"
+        fill="url(#shield)" stroke="#163A43" stroke-width="3"/>
+  <path d="M52,76 Q52,58 70,57 L330,57 Q348,58 348,76 L348,252 Q348,340 200,414 Q52,340 52,252 Z"
+        fill="none" stroke="#C8A951" stroke-width="2.5" stroke-opacity="0.55"
+        transform="translate(0,0) scale(0.955)" transform-origin="200 215"/>
+
+  <!-- top ribbon: FOURTH AND -->
+  <g>
+    <path d="M64,92 L336,92 L322,122 L78,122 Z" fill="url(#ribbon)"/>
+    <path d="M64,92 L78,122 L60,118 Z" fill="#9A7E32"/>
+    <path d="M336,92 L322,122 L340,118 Z" fill="#9A7E32"/>
+    <text x="200" y="114" text-anchor="middle" font-family="Oswald, Arial Narrow, sans-serif"
+          font-weight="700" font-size="26" letter-spacing="3" fill="#0A1622">FOURTH AND</text>
+  </g>
+
+  <!-- portrait roundel -->
+  <circle cx="200" cy="212" r="84" fill="#0A1622"/>
+  <circle cx="200" cy="212" r="80" fill="url(#roundel)" stroke="#C8A951" stroke-width="3"/>
+  <g clip-path="url(#rclip)">
+    <!-- shoulders -->
+    <path d="M132,300 Q134,250 200,246 Q266,250 268,300 Z" fill="#EFE5CF"/>
+    <path d="M132,300 Q134,250 200,246 Q266,250 268,300 Z" fill="none" stroke="#CDBF9D" stroke-width="2"/>
+    <!-- collar hint -->
+    <path d="M200,250 L186,272 L200,284 L214,272 Z" fill="#22606C"/>
+    <!-- neck -->
+    <path d="M186,232 Q186,252 200,254 Q214,252 214,232 Z" fill="#E6DABF"/>
+    <!-- head -->
+    <ellipse cx="200" cy="196" rx="40" ry="46" fill="#EFE5CF"/>
+    <!-- hair: swept-back matronly mass -->
+    <path d="M158,206 Q150,150 200,146 Q250,150 242,206 Q244,182 228,173 Q214,166 200,166 Q186,166 172,173 Q156,182 158,206 Z"
+          fill="#CFC4A8"/>
+    <path d="M160,200 Q156,168 200,164 Q244,168 240,200" fill="none" stroke="#B7AB8C" stroke-width="2"/>
+    <!-- glasses -->
+    <circle cx="184" cy="194" r="11" fill="none" stroke="#1C4E59" stroke-width="3"/>
+    <circle cx="216" cy="194" r="11" fill="none" stroke="#1C4E59" stroke-width="3"/>
+    <path d="M195,194 L205,194" stroke="#1C4E59" stroke-width="3"/>
+    <!-- subtle features -->
+    <path d="M200,200 Q198,212 194,216" fill="none" stroke="#CDBF9D" stroke-width="2"/>
+    <path d="M190,226 Q200,232 210,226" fill="none" stroke="#C2906F" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- bottom ribbon: GOALDA MEIR -->
+  <g>
+    <path d="M70,300 L330,300 L316,332 L84,332 Z" fill="url(#ribbon)"/>
+    <path d="M70,300 L84,332 L64,328 Z" fill="#9A7E32"/>
+    <path d="M330,300 L316,332 L336,328 Z" fill="#9A7E32"/>
+    <text x="200" y="324" text-anchor="middle" font-family="Oswald, Arial Narrow, sans-serif"
+          font-weight="700" font-size="27" letter-spacing="4" fill="#0A1622">GOALDA MEIR</text>
+  </g>
+
+  <!-- football -->
+  <g transform="translate(200,360)">
+    <ellipse cx="0" cy="0" rx="34" ry="20" fill="#7C4A28" stroke="#5A3318" stroke-width="2"/>
+    <ellipse cx="0" cy="0" rx="34" ry="20" fill="none" stroke="#9A6238" stroke-width="1" transform="scale(0.86)"/>
+    <path d="M-16,0 L16,0" stroke="#EFE5CF" stroke-width="3" stroke-linecap="round"/>
+    <path d="M-10,-5 L-10,5 M-3,-6 L-3,6 M4,-6 L4,6 M11,-5 L11,5" stroke="#EFE5CF" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- est. line -->
+  <text x="200" y="402" text-anchor="middle" font-family="Oswald, Arial Narrow, sans-serif"
+        font-weight="600" font-size="13" letter-spacing="3" fill="#EFE5CF" fill-opacity="0.8">EST. 2025 · PLANCY CHAMPIONS</text>
+</svg>
