@@ -3,6 +3,7 @@
 import * as api from './api.js';
 import * as store from './state.js';
 import { gateMatchup } from './gate.js';
+import { mergeSnapshots } from './snapshots.js';
 import { scoreProjection, winProbability } from './project.js';
 import { highlightSearchUrl } from './youtube.js';
 import { startRecorder } from './recorder.js';
@@ -79,6 +80,12 @@ async function loadWeek() {
       api.getScoreboard(season, week),
     ]);
 
+    // Server-recorded snapshots + resolved highlights (null when unavailable)
+    const [remote, highlights] = await Promise.all([
+      api.getRemoteSnapshots(leagueId, season, week),
+      api.getRemoteHighlights(season, week),
+    ]);
+
     const myRoster = rosters.find((r) => r.owner_id === config.userId) || rosters[0];
     const mySide = matchups.find((m) => m.roster_id === myRoster.roster_id);
     const oppSide = matchups.find(
@@ -98,12 +105,25 @@ async function loadWeek() {
 
     data = {
       league, games, mySide, oppSide, playerMeta, playerGames, projections,
+      remoteSnapshots: remote?.snapshots || [],
+      highlights: highlights?.videos || {},
       slots: (league.roster_positions || []).filter((p) => p !== 'BN'),
       myName: nameOf(mySide), oppName: nameOf(oppSide),
     };
 
     stopRecorder?.();
-    stopRecorder = startRecorder({ leagueId, season, week, onSnapshot: () => render() });
+    let ticks = 0;
+    stopRecorder = startRecorder({
+      leagueId, season, week,
+      onSnapshot: async () => {
+        // refresh server-side snapshots every 5th local tick (~5 min)
+        if (++ticks % 5 === 0) {
+          const fresh = await api.getRemoteSnapshots(leagueId, season, week);
+          if (fresh) data.remoteSnapshots = fresh.snapshots;
+        }
+        render();
+      },
+    });
     render();
   } catch (err) {
     alert(`Failed to load: ${err.message}`);
@@ -122,7 +142,9 @@ function gate() {
     watched: store.watchedFor(config, config.leagueId, config.week),
     gameStates: Object.fromEntries(
       data.games.map((g) => [g.gameKey, { state: g.state, progress: g.progress }])),
-    snapshots: store.loadSnapshots(config.leagueId, config.week),
+    snapshots: mergeSnapshots(
+      data.remoteSnapshots,
+      store.loadSnapshots(config.leagueId, config.week)),
     now: Date.now(),
     delayMs: config.delayMinutes * 60_000,
   });
@@ -267,8 +289,13 @@ function renderGames() {
     toggle.append(cb, el('span', 'status', 'seen'));
     card.append(toggle);
 
-    const a = el('a', 'yt', 'Highlights ▶');
-    a.href = highlightSearchUrl({ away: g.away, home: g.home, week: config.week, season: config.season });
+    // Direct link to the exact official video when the resolver found one
+    // (skips the YouTube results page entirely); search link otherwise.
+    const videoId = data.highlights[g.gameKey];
+    const a = el('a', 'yt', videoId ? 'Highlights ▶▶' : 'Highlights ▶');
+    a.href = videoId
+      ? `https://www.youtube.com/watch?v=${videoId}`
+      : highlightSearchUrl({ away: g.away, home: g.home, week: config.week, season: config.season });
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     card.append(a);

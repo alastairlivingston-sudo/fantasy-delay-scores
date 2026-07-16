@@ -17,8 +17,17 @@ See BUILD_PLAN.md for architecture and phases.
    league's `scoring_settings` for league-accurate projections.
 4. ESPN scoreboard (`site.api.espn.com/.../scoreboard?seasontype=2&week=N&dates=<year>`)
    is public + CORS OK; gives status/period/clock per game.
-5. Sleeper has no historical stat timeline. Delay mode replays snapshots the
-   client recorded itself (localStorage, 60s cadence, only while a tab is open).
+5. Sleeper has no historical stat timeline, and no free public API offers one.
+   Delay mode replays self-recorded snapshots from two sources, merged by
+   `js/snapshots.js`: the GitHub Actions recorder (~5 min cadence during game
+   windows, stored on the single-commit `snapshots` branch, cleared on week
+   rollover, served to the app by the `api/snapshots.js` Vercel function) and
+   the client's own 60s localStorage recording while a tab is open.
+6. The repo is PRIVATE: browsers can't read raw.githubusercontent.com from it,
+   hence the Vercel function + optional GH_SNAPSHOTS_TOKEN env var. Scheduled
+   workflows only run from the default branch (main).
+7. YouTube Data API is free (10k units/day, 100/search); the optional
+   YOUTUBE_API_KEY Actions secret enables direct highlight links.
 
 ## Hard rules
 1. Rendering must only read gated data from `js/gate.js`. In watched/delay
@@ -42,3 +51,4 @@ Off-season default: browse previous season so the app is testable year-round.
 - `npm run dev` — serve on :5173
 - `npm test` — unit tests for pure modules
 - `npm run smoke` — live API contract check
+- `FORCE_SEASON=2025 FORCE_WEEK=17 node scripts/record.js <dir>` — recorder dry run

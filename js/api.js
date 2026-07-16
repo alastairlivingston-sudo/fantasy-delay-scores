@@ -74,6 +74,25 @@ export async function getScoreboard(season, week) {
   });
 }
 
+/**
+ * Server-recorded snapshots + resolved highlight video IDs, served by
+ * /api/snapshots (Vercel function reading the repo's snapshots branch).
+ * Both return null when unavailable (local dev, recorder not enabled yet,
+ * different week) — callers must treat that as "no remote data".
+ */
+async function getRemoteFile(file, season, week) {
+  try {
+    const res = await fetch(`/api/snapshots?file=${file}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.season === season && body.week === week ? body : null;
+  } catch { return null; }
+}
+export const getRemoteSnapshots = (leagueId, season, week) =>
+  getRemoteFile(`${leagueId}.json`, season, week);
+export const getRemoteHighlights = (season, week) =>
+  getRemoteFile('highlights.json', season, week);
+
 /** {pid: gameKey} for a set of players, joining their team to the week's games. */
 export function mapPlayersToGames(playerIds, playerMeta, games) {
   const teamGame = {};

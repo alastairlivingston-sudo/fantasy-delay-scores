@@ -133,14 +133,49 @@ Player→game mapping comes from the projections payload (every player carries
 
 ## 3. Build phases
 
-- **Phase 1 (this branch):** everything above — setup flow, three modes,
+- **Phase 1 (built):** everything above — setup flow, three modes,
   win projection, highlights tab, tests, smoke script, deploy configs.
-- **Phase 2 (optional, when 2026 season starts):**
-  - Server-side snapshot recorder (Vercel Cron + KV) so delay mode works
-    without keeping the tab open.
-  - YouTube Data API direct-video deep links.
-  - PWA manifest + install banner for home-screen use.
-  - Red-zone/close-game haptics, multi-league dashboard.
+
+- **Phase 2 (built):** removes the "app must be open at kickoff" constraint.
+  - **Server-side snapshot recorder.** No free public API stores in-game
+    fantasy timelines (FantasyPros' delay runs on their proprietary feeds;
+    nflverse publishes post-game only), and Vercel's free-tier cron only fires
+    daily — so the repo itself is the database. A GitHub Actions workflow
+    (`.github/workflows/record.yml`) polls Sleeper + ESPN every ~5 minutes
+    during NFL game windows and force-pushes a single-commit `snapshots`
+    branch; the data files reset automatically when the league week rolls
+    over (the "clears every game week" requirement), and the single-commit
+    strategy means git history never accumulates. Costs ~90 Action-minutes
+    a week — inside the free tier for private repos. The app's own 60s
+    recording still runs while open and merges in for finer resolution
+    (`js/snapshots.js`).
+  - **Snapshot serving.** The static app can't read a private repo, so
+    `api/snapshots.js` (a Vercel function) proxies the `snapshots` branch:
+    anonymous raw access if the repo is public, `GH_SNAPSHOTS_TOKEN`
+    (fine-grained PAT, Contents read-only) if private. Missing data degrades
+    to Phase 1 behaviour.
+  - **YouTube direct links.** `scripts/resolve-highlights.js` runs in the
+    same workflow with an optional `YOUTUBE_API_KEY` repo secret and maps
+    each finished game to the official NFL channel's highlight video ID —
+    the app then deep-links straight into the player, skipping the results
+    page. The YouTube Data API is free: 10,000 quota units/day, 100 per
+    search, results cached per week so we use ≤1,600. Without the key the
+    app keeps the spoiler-safe search links.
+  - **PWA install.** Manifest + iOS meta tags so the app pins to the home
+    screen full-screen.
+
+  **To switch Phase 2 on** (one-time):
+  1. Merge this branch to `main` — GitHub only runs scheduled workflows from
+     the default branch.
+  2. Either make the repo public (zero further setup), or create a
+     fine-grained PAT (this repo only, Contents: read) and add it as
+     `GH_SNAPSHOTS_TOKEN` in the Vercel project's environment variables.
+  3. Optional: create a free YouTube Data API key (Google Cloud console, no
+     billing needed) and add it as a repo Actions secret `YOUTUBE_API_KEY`.
+
+- **Phase 3 (ideas):** red-zone/close-game notifications, multi-league
+  dashboard, minute-level server recording via an external pinger
+  (cron-job.org → a record endpoint) if 5-minute resolution feels coarse.
 
 ## 4. Testing & iteration scaffolding
 
