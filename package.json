@@ -1,0 +1,10 @@
+{
+  "name": "spoiler-safe-sleeper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx -y serve . -l 5173",
+    "test": "node --test",
+    "smoke": "node scripts/smoke.js"
+  }
+}

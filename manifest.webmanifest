@@ -1,0 +1,12 @@
+{
+  "name": "Spoiler-Safe Sleeper Scores",
+  "short_name": "Sleeper Safe",
+  "description": "Watch NFL on delayed UK TV without spoiling your Sleeper fantasy matchup.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f1220",
+  "theme_color": "#0f1220",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

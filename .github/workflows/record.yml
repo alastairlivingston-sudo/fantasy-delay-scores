@@ -1,0 +1,77 @@
+# Server-side snapshot recorder: polls Sleeper + ESPN every ~5 minutes during
+# NFL game windows and stores snapshots on the `snapshots` branch, so delay
+# mode works even if the app wasn't open at kickoff.
+#
+# The branch is force-pushed as a single commit each run and the data files
+# reset when the league week rolls over — the "database" clears itself weekly.
+#
+# Sunday evenings (17:00-04:00 UK time) are instead covered at 60-second
+# resolution by record-live.yml, so the Sunday/Monday entries below are
+# trimmed to the hours before/after that window — see record-live.yml's
+# header for why it needs its own workflow.
+#
+# NOTE: scheduled workflows only run from the repository's DEFAULT branch —
+# this file must be merged to main before the recorder starts.
+
+name: Record score snapshots
+
+on:
+  workflow_dispatch:
+  schedule:
+    # NFL game windows in UTC, September–January. GitHub cron can lag a few
+    # minutes; combined with the app's own 60s recording that's fine.
+    - cron: '*/5 0-4 * 1,9-12 FRI'   # Thursday Night Football
+    - cron: '*/5 13-15 * 1,9-12 SUN' # Sunday early slate, before the live window
+    - cron: '*/5 0-4 * 1,9-12 TUE'   # Monday Night Football
+    - cron: '*/5 17-23 * 11 THU'     # Thanksgiving afternoon games
+    - cron: '*/5 17-23 * 1,12 SAT'   # December/January Saturday games
+    - cron: '*/5 0-4 * 1,12 SUN'     # Saturday night games
+    - cron: '*/5 17-23 25 12 *'      # Christmas Day games
+    - cron: '*/5 0-4 26 12 *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshots
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch existing snapshots
+        run: |
+          mkdir -p /tmp/snapshot-data
+          if git fetch origin snapshots 2>/dev/null; then
+            git --work-tree=/tmp/snapshot-data checkout FETCH_HEAD -- data 2>/dev/null || true
+          fi
+
+      - name: Record snapshot
+        env:
+          SLEEPER_USERNAME: AlastairL
+        run: node scripts/record.js /tmp/snapshot-data/data
+
+      - name: Resolve YouTube highlight links (optional)
+        if: always()
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: node scripts/resolve-highlights.js /tmp/snapshot-data/data
+
+      - name: Push snapshots branch (single commit, self-clearing)
+        run: |
+          cd /tmp/snapshot-data
+          git init -q -b snapshots
+          git config user.name "snapshot-recorder"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -q -m "snapshots $(date -u +%FT%TZ)"
+          git push -q --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            snapshots
