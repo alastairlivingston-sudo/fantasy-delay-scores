@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Spoiler-Safe Sleeper Scores</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏈</text></svg>">
+</head>
+<body>
+  <div id="app">
+    <!-- Setup view -->
+    <section id="view-setup" hidden>
+      <div class="setup-card">
+        <h1>🏈 Spoiler-Safe<br>Sleeper Scores</h1>
+        <p class="sub">Watch on UK delay without getting spoiled.</p>
+        <label for="username">Sleeper username</label>
+        <input id="username" type="text" autocomplete="username" autocapitalize="none" placeholder="e.g. AlastairL">
+        <button id="btn-connect" class="primary">Connect</button>
+        <div id="setup-leagues" class="league-list"></div>
+        <p id="setup-error" class="error" hidden></p>
+      </div>
+    </section>
+
+    <!-- Main view -->
+    <section id="view-main" hidden>
+      <header>
+        <div class="header-row">
+          <span id="league-name" class="league-name"></span>
+          <span class="header-controls">
+            <select id="week-select" aria-label="Week"></select>
+            <button id="btn-settings" class="ghost" aria-label="Change league">⚙︎</button>
+          </span>
+        </div>
+        <div class="mode-switch" role="tablist" aria-label="Spoiler mode">
+          <button data-mode="live" role="tab">Live</button>
+          <button data-mode="watched" role="tab">Watched</button>
+          <button data-mode="delay" role="tab">Delay</button>
+        </div>
+        <div id="delay-controls" class="delay-controls" hidden>
+          <label for="delay-select">Behind live by</label>
+          <select id="delay-select">
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+            <option value="60" selected>60 min</option>
+            <option value="90">90 min</option>
+            <option value="120">2 hours</option>
+          </select>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" hidden></div>
+
+      <div id="tab-matchup" class="tab">
+        <div id="scorecard" class="scorecard"></div>
+        <div id="winprob" class="winprob"></div>
+        <div id="starters" class="starters"></div>
+      </div>
+
+      <div id="tab-games" class="tab" hidden>
+        <p class="hint" id="games-hint"></p>
+        <div id="games-list" class="games-list"></div>
+      </div>
+
+      <nav class="bottom-nav">
+        <button data-tab="matchup" class="active">Matchup</button>
+        <button data-tab="games">Games &amp; Highlights</button>
+      </nav>
+    </section>
+
+    <div id="loading" class="loading" hidden>Loading…</div>
+  </div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
