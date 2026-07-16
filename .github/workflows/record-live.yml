@@ -1,0 +1,52 @@
+# Live-window recorder: 17:00 -> 04:00 UK wall-clock every Sunday night, at
+# ~60-second resolution (much finer than record.yml's ~5-minute cadence,
+# which still covers all other game windows).
+#
+# Why two cron triggers at 16:00 and 17:00 UTC: the window is defined in UK
+# WALL-CLOCK time, which is BST (UTC+1) for most of Sept/October and GMT
+# (UTC+0) from late October on. Rather than hardcode the yearly DST-change
+# date, both candidate start times fire every week; the job checks the real
+# Europe/London hour (js/schedule.js) and the wrong one exits immediately as
+# a no-op — so this self-corrects across the DST boundary with no maintenance.
+#
+# Why two "legs": a GitHub-hosted job caps out at 6 hours, but the window is
+# ~11 hours. Leg 1 runs for a safe ~5h20m, then dispatches leg 2 (via the
+# Actions API) to cover the rest — see scripts/record-live.js for the loop
+# and chaining logic.
+
+name: Record live-window snapshots (60s)
+
+on:
+  workflow_dispatch:
+    inputs:
+      leg:
+        description: 'Leg to run (1 = full gated start, 2 = continuation, no gate)'
+        default: '1'
+  schedule:
+    - cron: '0 16 * * SUN' # candidate start: 17:00 local during BST
+    - cron: '0 17 * * SUN' # candidate start: 17:00 local during GMT
+
+permissions:
+  contents: write
+  actions: write # leg 1 dispatches leg 2 via the Actions API
+
+concurrency:
+  group: snapshots
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350 # ~5h50m; scripts/record-live.js self-limits leg 1 to ~5h20m
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run live recorder
+        env:
+          SLEEPER_USERNAME: AlastairL
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/record-live.js /tmp/snapshot-data "${{ github.event.inputs.leg || '1' }}"

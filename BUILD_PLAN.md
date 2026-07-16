@@ -140,20 +140,32 @@ Player→game mapping comes from the projections payload (every player carries
   - **Server-side snapshot recorder.** No free public API stores in-game
     fantasy timelines (FantasyPros' delay runs on their proprietary feeds;
     nflverse publishes post-game only), and Vercel's free-tier cron only fires
-    daily — so the repo itself is the database. A GitHub Actions workflow
-    (`.github/workflows/record.yml`) polls Sleeper + ESPN every ~5 minutes
-    during NFL game windows and force-pushes a single-commit `snapshots`
-    branch; the data files reset automatically when the league week rolls
-    over (the "clears every game week" requirement), and the single-commit
-    strategy means git history never accumulates. Costs ~90 Action-minutes
-    a week — inside the free tier for private repos. The app's own 60s
-    recording still runs while open and merges in for finer resolution
-    (`js/snapshots.js`).
+    daily — so the repo itself is the database. `.github/workflows/record.yml`
+    polls Sleeper + ESPN every ~5 minutes during all other NFL game windows;
+    `.github/workflows/record-live.yml` covers Sunday evenings — the window
+    you're most likely to be watching delayed — at 60-second resolution (see
+    below). Both force-push a single-commit `snapshots` branch that resets
+    automatically when the league week rolls over (the "clears every game
+    week" requirement) — git history never accumulates. The app's own 60s
+    recording still runs while open and merges in (`js/snapshots.js`).
+  - **60-second Sunday-night recording, no need to have the app open.**
+    `record-live.yml` runs 17:00→04:00 UK wall-clock. Two GitHub limits shape
+    it: a hosted job caps out at 6 hours (the window is ~11h), and scheduled
+    cron only fires reliably every ~5 minutes (too coarse for a 60s cadence,
+    and can jitter under load). So the workflow doesn't rely on cron ticking
+    every minute — it starts one job that loops with its own internal 60s
+    sleep (immune to cron jitter once running), splits into two chained
+    "legs" via the Actions API to stay under the 6-hour cap, and the
+    start/stop times are evaluated live against Europe/London time
+    (`js/schedule.js`) rather than hardcoded UTC — so it self-corrects across
+    the BST/GMT clock change with no yearly maintenance. Two cron triggers
+    (16:00 and 17:00 UTC) cover both possible DST states; the wrong one
+    no-ops immediately. See `scripts/record-live.js` for the loop/chain logic.
   - **Snapshot serving.** The static app can't read a private repo, so
     `api/snapshots.js` (a Vercel function) proxies the `snapshots` branch:
-    anonymous raw access if the repo is public, `GH_SNAPSHOTS_TOKEN`
-    (fine-grained PAT, Contents read-only) if private. Missing data degrades
-    to Phase 1 behaviour.
+    anonymous raw access once the repo is public (no token needed), or
+    `GH_SNAPSHOTS_TOKEN` (fine-grained PAT, Contents read-only) if it's ever
+    made private again. Missing data degrades to Phase 1 behaviour.
   - **YouTube direct links.** `scripts/resolve-highlights.js` runs in the
     same workflow with an optional `YOUTUBE_API_KEY` repo secret and maps
     each finished game to the official NFL channel's highlight video ID —
@@ -165,13 +177,23 @@ Player→game mapping comes from the projections payload (every player carries
     screen full-screen.
 
   **To switch Phase 2 on** (one-time):
-  1. Merge this branch to `main` — GitHub only runs scheduled workflows from
+  1. Make the repo public (GitHub → Settings → General → Danger Zone →
+     Change visibility). Simplifies `api/snapshots.js` to anonymous access —
+     no `GH_SNAPSHOTS_TOKEN` needed — and public repos get unlimited free
+     GitHub Actions minutes, comfortably covering the Sunday marathon jobs.
+  2. Merge this branch to `main` — GitHub only runs scheduled workflows from
      the default branch.
-  2. Either make the repo public (zero further setup), or create a
-     fine-grained PAT (this repo only, Contents: read) and add it as
-     `GH_SNAPSHOTS_TOKEN` in the Vercel project's environment variables.
   3. Optional: create a free YouTube Data API key (Google Cloud console, no
      billing needed) and add it as a repo Actions secret `YOUTUBE_API_KEY`.
+
+  **Honest caveat:** GitHub warns scheduled workflows can be delayed under
+  high load, so the marathon job's *start* (17:00 or 04:00-ish handoff) could
+  slip by a few minutes on a busy Sunday — rare, and once running the internal
+  60s loop is unaffected by that jitter. If it ever proves annoying in
+  practice, `scripts/record-live.js`'s dry-run hooks
+  (`RECORD_LIVE_TICK_MS`/`RECORD_LIVE_MAX_ITERATIONS`/`RECORD_LIVE_REMOTE`)
+  make it easy to test changes safely against a local repo before touching
+  the real one.
 
 - **Phase 3 (ideas):** red-zone/close-game notifications, multi-league
   dashboard, minute-level server recording via an external pinger

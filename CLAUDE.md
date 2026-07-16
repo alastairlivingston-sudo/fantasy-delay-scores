@@ -18,16 +18,25 @@ See BUILD_PLAN.md for architecture and phases.
 4. ESPN scoreboard (`site.api.espn.com/.../scoreboard?seasontype=2&week=N&dates=<year>`)
    is public + CORS OK; gives status/period/clock per game.
 5. Sleeper has no historical stat timeline, and no free public API offers one.
-   Delay mode replays self-recorded snapshots from two sources, merged by
-   `js/snapshots.js`: the GitHub Actions recorder (~5 min cadence during game
-   windows, stored on the single-commit `snapshots` branch, cleared on week
-   rollover, served to the app by the `api/snapshots.js` Vercel function) and
-   the client's own 60s localStorage recording while a tab is open.
-6. The repo is PRIVATE: browsers can't read raw.githubusercontent.com from it,
-   hence the Vercel function + optional GH_SNAPSHOTS_TOKEN env var. Scheduled
-   workflows only run from the default branch (main).
+   Delay mode replays self-recorded snapshots from three sources, merged by
+   `js/snapshots.js`: the ~5-min GitHub Actions recorder (record.yml, most
+   game windows), the 60-second Sunday-evening recorder (record-live.yml,
+   17:00-04:00 UK wall-clock — see BUILD_PLAN.md for why it needs two chained
+   jobs and how js/schedule.js keeps it DST-correct without date maintenance),
+   and the client's own 60s localStorage recording while a tab is open. All
+   snapshot data lives on the single-commit `snapshots` branch, cleared on
+   week rollover, served to the app by the `api/snapshots.js` Vercel function.
+6. Repo should be public: browsers can't read raw.githubusercontent.com from a
+   private repo without the GH_SNAPSHOTS_TOKEN fallback, and public repos get
+   unlimited free Actions minutes (the Sunday marathon job needs real hours/
+   week). Scheduled workflows only run from the default branch (main).
 7. YouTube Data API is free (10k units/day, 100/search); the optional
    YOUTUBE_API_KEY Actions secret enables direct highlight links.
+8. NEVER test scripts/record-live.js (or record.js) against the real
+   `https://github.com/<owner>/<repo>.git` remote — this environment can carry
+   ambient push credentials that make even a deliberately-invalid token
+   succeed. Always pass RECORD_LIVE_REMOTE pointing at a local bare repo
+   (`git init --bare /tmp/x.git`) for dry runs.
 
 ## Hard rules
 1. Rendering must only read gated data from `js/gate.js`. In watched/delay
