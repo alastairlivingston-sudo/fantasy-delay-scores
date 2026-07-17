@@ -1,11 +1,19 @@
-# One-off backfill of YouTube highlight links for a whole season. The regular
-# recorder (record.yml) only resolves the current week during live windows, so
-# past/completed weeks you browse off-season never got links. Run this manually
-# (Actions ▸ Backfill highlights ▸ Run workflow) with a season to fill weeks 1-18.
+# Backfill of YouTube highlight links for a whole season. The regular recorder
+# (record.yml) only resolves the current week during live windows, so past weeks
+# you browse off-season never got links. This fills weeks 1-18 for a season.
 #
-# Writes persistent data/highlights-<season>-<week>.json files onto the
-# `snapshots` branch, preserving everything already there. Needs the
-# YOUTUBE_API_KEY secret (without it the resolver no-ops).
+# The YouTube Data API free quota (~10k units/day, ~101 units per game) can't
+# cover a full ~272-game season in one run, so this ALSO runs daily on a
+# schedule and picks up where it left off (the resolver skips already-resolved
+# games and the push preserves existing files). To avoid running — and burning
+# quota — forever, the final step DISABLES this workflow's schedule once a run
+# adds no new highlights (i.e. everything findable is resolved). Re-enable it in
+# the Actions tab, or just dispatch it manually, to backfill another season.
+#
+# Manual runs: Actions ▸ Backfill highlights ▸ Run workflow (pick a season).
+# Scheduled runs default to season 2025. Needs the YOUTUBE_API_KEY secret
+# (without it the resolver no-ops). Writes persistent
+# data/highlights-<season>-<week>.json onto the `snapshots` branch.
 
 name: Backfill highlights
 
@@ -15,9 +23,12 @@ on:
       season:
         description: NFL season to backfill (e.g. 2025)
         required: true
+  schedule:
+    - cron: '0 9 * * *' # daily, after the ~08:00 UTC YouTube quota reset
 
 permissions:
   contents: write
+  actions: write # self-disable the schedule once the backfill has converged
 
 concurrency:
   group: snapshots
@@ -26,6 +37,8 @@ concurrency:
 jobs:
   backfill:
     runs-on: ubuntu-latest
+    env:
+      SEASON: ${{ github.event.inputs.season || '2025' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,13 +53,16 @@ jobs:
             git --work-tree=/tmp/snapshot-data checkout FETCH_HEAD -- data 2>/dev/null || true
           fi
 
+      - name: Count highlights already resolved
+        run: echo "H_BEFORE=$(node scripts/count-highlights.js /tmp/snapshot-data/data "$SEASON")" >> "$GITHUB_ENV"
+
       - name: Resolve highlights for weeks 1-18
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           for w in $(seq 1 18); do
-            echo "=== ${{ github.event.inputs.season }} week $w ==="
-            FORCE_SEASON=${{ github.event.inputs.season }} FORCE_WEEK=$w \
+            echo "=== $SEASON week $w ==="
+            FORCE_SEASON="$SEASON" FORCE_WEEK=$w \
               node scripts/resolve-highlights.js /tmp/snapshot-data/data
           done
 
@@ -57,7 +73,24 @@ jobs:
           git config user.name "snapshot-recorder"
           git config user.email "actions@github.com"
           git add -A
-          git commit -q -m "backfill highlights ${{ github.event.inputs.season }} $(date -u +%FT%TZ)"
+          git commit -q -m "backfill highlights $SEASON $(date -u +%FT%TZ)"
           git push -q --force \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
             snapshots
+
+      # On scheduled runs only, stop the daily schedule once a run resolves no
+      # new highlights — the season is as complete as the API can make it.
+      - name: Disable schedule when converged
+        if: github.event_name == 'schedule'
+        run: |
+          AFTER=$(node scripts/count-highlights.js /tmp/snapshot-data/data "$SEASON")
+          echo "resolved highlights: before=$H_BEFORE after=$AFTER"
+          if [ "$AFTER" -le "$H_BEFORE" ]; then
+            echo "No new highlights this run — backfill converged; disabling scheduled runs."
+            curl -sS -X PUT \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/backfill-highlights.yml/disable"
+          else
+            echo "Progress made ($H_BEFORE -> $AFTER); keeping the daily schedule."
+          fi
