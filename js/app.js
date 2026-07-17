@@ -7,6 +7,7 @@ import { mergeSnapshots } from './snapshots.js';
 import { scoreProjection, winProbability } from './project.js';
 import { buildFeed } from './newsflash.js';
 import { startRecorder } from './recorder.js';
+import { browseSeasonWeek, chooseDefaultWeek, weekOptions } from './weeks.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -84,6 +85,7 @@ function showSetup() {
   stopRecorder?.();
   $('#view-main').hidden = true;
   $('#view-mode').hidden = true;
+  $('#view-highlights').hidden = true;
   $('#view-setup').hidden = false;
   $('#username').value = config.username || '';
 }
@@ -98,6 +100,7 @@ function updateModeChoiceUI() {
 function showModeChoice() {
   $('#view-setup').hidden = true;
   $('#view-main').hidden = true;
+  $('#view-highlights').hidden = true;
   $('#view-mode').hidden = false;
   updateModeChoiceUI();
 }
@@ -195,6 +198,7 @@ function render() {
   if (!data) return;
   $('#view-setup').hidden = true;
   $('#view-mode').hidden = true;
+  $('#view-highlights').hidden = true;
   $('#view-main').hidden = false;
   $('#league-name').textContent = data.league.name;
   renderWeekSelect();
@@ -369,6 +373,38 @@ function flashSaved(msg = 'Saved') {
   toastTimer = setTimeout(() => { t.classList.remove('show'); t.hidden = true; }, 1200);
 }
 
+// A game card's spoiler-safe info line: kickoff time (never a score) · matchup,
+// plus a tiny live/final status tag so you can tell what's on without a
+// scoreline. Shared by the league Games tab and the standalone Highlights view.
+function gameCardBase(g) {
+  const card = el('div', 'game');
+  const info = el('div', 'info');
+  const kickoff = new Date(g.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const tag = g.state === 'post' ? 'Final' : g.state === 'in' ? 'Live' : '';
+  const line = el('div', 'matchup-name');
+  line.append(el('span', 'kick', kickoff), el('span', null, ` · ${g.away} @ ${g.home}`));
+  if (tag) line.append(el('span', `tag ${g.state}`, tag));
+  info.append(line);
+  card.append(info);
+  return card;
+}
+
+// The highlight affordance for a game. Only a resolver-confirmed, full-length
+// official upload is ever linked (never a live search — its results page can
+// itself show a score); otherwise a non-clickable placeholder.
+function highlightEl(g, video) {
+  if (video) {
+    const a = el('a', 'yt', '▶ Highlights');
+    a.title = `Posted ${relativeTime(video.publishedAt)}`;
+    a.href = `https://www.youtube.com/watch?v=${video.id}`;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    return a;
+  }
+  const label = g.state === 'post' ? 'No highlight yet' : '—';
+  return el('span', 'yt pending', label);
+}
+
 function renderGames() {
   $('#games-hint').textContent = config.mode === 'watched'
     ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
@@ -382,18 +418,8 @@ function renderGames() {
 
   for (const g of data.games) {
     const isWatched = Boolean(watched[g.gameKey]);
-    const card = el('div', `game${isWatched ? ' watched' : ''}`);
-
-    // One compact line: kickoff time (never a score) · matchup, plus a tiny
-    // live/final status tag so you can tell what's on without a scoreline.
-    const info = el('div', 'info');
-    const kickoff = new Date(g.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-    const tag = g.state === 'post' ? 'Final' : g.state === 'in' ? 'Live' : '';
-    const line = el('div', 'matchup-name');
-    line.append(el('span', 'kick', kickoff), el('span', null, ` · ${g.away} @ ${g.home}`));
-    if (tag) line.append(el('span', `tag ${g.state}`, tag));
-    info.append(line);
-    card.append(info);
+    const card = gameCardBase(g);
+    if (isWatched) card.classList.add('watched');
 
     const toggle = el('label', 'watch-toggle');
     const cb = el('input');
@@ -406,21 +432,90 @@ function renderGames() {
     };
     toggle.append(cb, el('span', 'status', 'seen'));
     card.append(toggle);
+    card.append(highlightEl(g, data.highlights[g.gameKey]));
+    list.append(card);
+  }
+}
 
-    // Only a resolver-confirmed, full-length official upload is ever linked
-    // (never a live search — its results page can itself show a score).
-    const video = data.highlights[g.gameKey];
-    if (video) {
-      const a = el('a', 'yt', '▶ Highlights');
-      a.title = `Posted ${relativeTime(video.publishedAt)}`;
-      a.href = `https://www.youtube.com/watch?v=${video.id}`;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      card.append(a);
-    } else {
-      const label = g.state === 'post' ? 'No highlight yet' : '—';
-      card.append(el('span', 'yt pending', label));
+/* ---------------- standalone highlights view ---------------- */
+// A league-free view of the week's official highlight links. Highlights are
+// already league-independent — resolve-highlights.js keys them by gameKey
+// across every game in a week and never clears them on rollover — so this
+// needs only the ESPN scoreboard + the resolved highlights file, no matchup.
+
+const hl = { season: null, currentWeek: null, week: null, games: [], videos: {}, checkedAt: null };
+
+async function enterHighlights(targetWeek) {
+  $('#view-setup').hidden = true;
+  $('#view-mode').hidden = true;
+  $('#view-main').hidden = true;
+  $('#view-highlights').hidden = false;
+  showLoading(true);
+  $('#hl-error').hidden = true;
+  try {
+    // Anchor to a season + newest browsable week once; week navigation reuses it.
+    if (hl.currentWeek == null) {
+      const base = browseSeasonWeek(await api.getNflState());
+      hl.season = base.season;
+      hl.currentWeek = base.week;
     }
+    // Default to the most recent week that actually has finished games, so the
+    // "latest game week" never opens empty mid-week before kickoff.
+    let week = targetWeek;
+    if (week == null) {
+      const games = await api.getScoreboard(hl.season, hl.currentWeek);
+      week = chooseDefaultWeek(hl.currentWeek, games);
+    }
+    await loadHighlightsWeek(week);
+  } catch (err) {
+    $('#hl-list').replaceChildren();
+    $('#hl-checked').textContent = '';
+    $('#hl-error').textContent = `Couldn’t load highlights: ${err.message}`;
+    $('#hl-error').hidden = false;
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function loadHighlightsWeek(week) {
+  showLoading(true);
+  try {
+    const [games, remote] = await Promise.all([
+      api.getScoreboard(hl.season, week),
+      api.getRemoteHighlights(hl.season, week),
+    ]);
+    hl.week = week;
+    hl.games = [...games].sort((a, b) => new Date(a.date) - new Date(b.date));
+    hl.videos = remote?.videos || {};
+    hl.checkedAt = remote?.checkedAt || null;
+    renderHighlights();
+  } finally {
+    showLoading(false);
+  }
+}
+
+function renderHighlights() {
+  const sel = $('#hl-week-select');
+  const opts = weekOptions(hl.currentWeek);
+  if (sel.options.length !== opts.length) {
+    sel.replaceChildren();
+    for (const w of opts) sel.append(new Option(`Week ${w}`, w));
+  }
+  sel.value = String(hl.week);
+
+  $('#hl-checked').textContent = hl.checkedAt
+    ? `Highlights last checked: ${new Date(hl.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : '';
+
+  const list = $('#hl-list');
+  list.replaceChildren();
+  if (!hl.games.length) {
+    list.append(el('div', 'empty-state', 'No games scheduled for this week yet.'));
+    return;
+  }
+  for (const g of hl.games) {
+    const card = gameCardBase(g);
+    card.append(highlightEl(g, hl.videos[g.gameKey]));
     list.append(card);
   }
 }
@@ -495,6 +590,28 @@ function startUpdateChecks() {
 
 function openDrawer() { $('#drawer').hidden = false; }
 function closeDrawer() { $('#drawer').hidden = true; }
+function openHlDrawer() { $('#hl-drawer').hidden = false; }
+function closeHlDrawer() { $('#hl-drawer').hidden = true; }
+
+/* ---------------- routing ---------------- */
+// The Highlights view has its own shareable URL (/highlights, a Vercel rewrite
+// to index.html). The two views reach each other only through the menu.
+
+function goHighlights() {
+  if (location.pathname !== '/highlights') history.pushState({ view: 'highlights' }, '', '/highlights');
+  enterHighlights();
+}
+
+function goApp() {
+  if (location.pathname !== '/') history.pushState({ view: 'app' }, '', '/');
+  $('#view-highlights').hidden = true;
+  if (data) render(); else bootApp();
+}
+
+function route() {
+  if (location.pathname === '/highlights') enterHighlights();
+  else bootApp();
+}
 
 /* ---------------- events ---------------- */
 
@@ -504,6 +621,14 @@ $('#btn-menu').onclick = openDrawer;
 $('#btn-refresh').onclick = () => location.reload();
 document.querySelectorAll('#drawer [data-close]').forEach((elm) => { elm.onclick = closeDrawer; });
 $('#btn-settings').onclick = () => { closeDrawer(); showSetup(); };
+$('#btn-to-highlights').onclick = () => { closeDrawer(); goHighlights(); };
+
+// Highlights view: menu is the way back to the league app.
+$('#btn-hl-menu').onclick = openHlDrawer;
+$('#btn-hl-refresh').onclick = () => location.reload();
+document.querySelectorAll('#hl-drawer [data-hl-close]').forEach((elm) => { elm.onclick = closeHlDrawer; });
+$('#btn-hl-to-app').onclick = () => { closeHlDrawer(); goApp(); };
+$('#hl-week-select').onchange = (e) => { closeHlDrawer(); loadHighlightsWeek(Number(e.target.value)); };
 $('#btn-set-default').onclick = () => {
   config.defaultLeagueId = config.leagueId;
   config.defaultSeason = config.season;
@@ -538,20 +663,27 @@ function enterMain() {
   loadWeek();
 }
 
-// A saved global default opens straight into that league + season + mode.
-if (config.userId && config.defaultLeagueId && config.defaultSeason) {
-  config.leagueId = config.defaultLeagueId;
-  config.season = config.defaultSeason;
-  config.week = config.defaultWeek || config.week || 1;
-  config.mode = config.defaultMode || config.mode;
-  if (config.defaultDelayMinutes) config.delayMinutes = config.defaultDelayMinutes;
-  config.modeConfirmed = true;
-  enterMain();
-} else if (config.userId && config.leagueId && config.season && config.week) {
-  enterMain();
-} else {
-  showSetup();
-  connect(config.username);
+// Normal (non-highlights) launch. A saved global default opens straight into
+// that league + season + mode; otherwise resume the last league or show setup.
+function bootApp() {
+  $('#view-highlights').hidden = true;
+  if (config.userId && config.defaultLeagueId && config.defaultSeason) {
+    config.leagueId = config.defaultLeagueId;
+    config.season = config.defaultSeason;
+    config.week = config.defaultWeek || config.week || 1;
+    config.mode = config.defaultMode || config.mode;
+    if (config.defaultDelayMinutes) config.delayMinutes = config.defaultDelayMinutes;
+    config.modeConfirmed = true;
+    enterMain();
+  } else if (config.userId && config.leagueId && config.season && config.week) {
+    enterMain();
+  } else {
+    showSetup();
+    connect(config.username);
+  }
 }
+
+window.addEventListener('popstate', route);
+route();
 
 startUpdateChecks();
