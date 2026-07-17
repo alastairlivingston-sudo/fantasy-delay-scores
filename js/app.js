@@ -205,9 +205,24 @@ function render() {
 
   const ctx = buildCtx();
   const gated = gateMatchup(data.mySide || {}, data.oppSide || {}, ctx);
-  renderNotice(gated.me.notice);
-  renderScorecard(gated);
-  renderStarters(gated);
+  // A league/week with no matchup for you (e.g. a season that hasn't started,
+  // or a pre-draft league) has no roster to show — say so instead of rendering
+  // an empty "Roster undefined · 0.00" card.
+  const hasMatchup = Boolean(data.mySide || data.oppSide);
+  $('#no-matchup').hidden = hasMatchup;
+  $('#scorecard').hidden = !hasMatchup;
+  $('#winprob').hidden = !hasMatchup;
+  $('#starters').hidden = !hasMatchup;
+  if (hasMatchup) {
+    renderNotice(gated.me.notice);
+    renderScorecard(gated);
+    renderStarters(gated);
+  } else {
+    $('#notice').hidden = true;
+    $('#no-matchup').textContent =
+      `No matchup found for Week ${config.week} in ${data.league.name}. `
+      + `This league may not have started for ${config.season} yet — pick another week or league from the ☰ menu.`;
+  }
   renderGames();
   renderNews(ctx);
   $('#tab-matchup').hidden = activeTab !== 'matchup';
