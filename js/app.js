@@ -2,9 +2,10 @@
 
 import * as api from './api.js';
 import * as store from './state.js';
-import { gateMatchup } from './gate.js';
+import { gateMatchup, visibleSnapshots } from './gate.js';
 import { mergeSnapshots } from './snapshots.js';
 import { scoreProjection, winProbability } from './project.js';
+import { buildFeed } from './newsflash.js';
 import { startRecorder } from './recorder.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -116,6 +117,9 @@ async function loadWeek() {
       api.getScoreboard(season, week),
     ]);
 
+    // Games sorted by kickoff so the list reads chronologically.
+    games.sort((a, b) => new Date(a.date) - new Date(b.date));
+
     // Server-recorded snapshots + resolved highlights (null when unavailable)
     const [remote, highlights] = await Promise.all([
       api.getRemoteSnapshots(leagueId, season, week),
@@ -172,8 +176,8 @@ async function loadWeek() {
 
 /* ---------------- rendering ---------------- */
 
-function gate() {
-  return gateMatchup(data.mySide || {}, data.oppSide || {}, {
+function buildCtx() {
+  return {
     mode: config.mode,
     playerGames: data.playerGames,
     watched: store.watchedFor(config, config.leagueId, config.week),
@@ -184,7 +188,7 @@ function gate() {
       store.loadSnapshots(config.leagueId, config.week)),
     now: Date.now(),
     delayMs: config.delayMinutes * 60_000,
-  });
+  };
 }
 
 function render() {
@@ -195,15 +199,30 @@ function render() {
   $('#league-name').textContent = data.league.name;
   renderWeekSelect();
   renderModeSwitch();
-  renderModeButton();
+  renderModeIndicator();
+  renderDefaultHint();
+  renderBottomNav();
 
-  const gated = gate();
+  const ctx = buildCtx();
+  const gated = gateMatchup(data.mySide || {}, data.oppSide || {}, ctx);
   renderNotice(gated.me.notice);
   renderScorecard(gated);
   renderStarters(gated);
   renderGames();
+  renderNews(ctx);
   $('#tab-matchup').hidden = activeTab !== 'matchup';
   $('#tab-games').hidden = activeTab !== 'games';
+  $('#tab-news').hidden = activeTab !== 'news';
+}
+
+// Second bottom-nav tab depends on mode: highlights (watched) vs news (delay).
+function renderBottomNav() {
+  const showNews = config.mode === 'delay';
+  $('.bottom-nav [data-tab="games"]').hidden = showNews;
+  $('.bottom-nav [data-tab="news"]').hidden = !showNews;
+  // Keep activeTab valid for the mode.
+  if (showNews && activeTab === 'games') activeTab = 'news';
+  if (!showNews && activeTab === 'news') activeTab = 'games';
   document.querySelectorAll('.bottom-nav button').forEach((b) =>
     b.classList.toggle('active', b.dataset.tab === activeTab));
 }
@@ -224,9 +243,20 @@ function renderModeSwitch() {
   $('#delay-select').value = String(config.delayMinutes);
 }
 
-function renderModeButton() {
-  const labels = { live: 'Live', watched: 'Watched', delay: `Delay ${config.delayMinutes}m` };
-  $('#btn-mode').textContent = labels[config.mode] || config.mode;
+function renderModeIndicator() {
+  $('#mode-indicator').textContent = config.mode === 'delay'
+    ? `Delay ${config.delayMinutes}m` : 'Watched';
+}
+
+function renderDefaultHint() {
+  const isDefault = config.defaultLeagueId === config.leagueId
+    && config.defaultMode === config.mode
+    && (config.mode !== 'delay' || config.defaultDelayMinutes === config.delayMinutes);
+  const btn = $('#btn-set-default');
+  btn.disabled = isDefault;
+  $('#default-hint').textContent = isDefault
+    ? 'This league + mode opens by default.'
+    : 'Opens straight into this league + mode on launch.';
 }
 
 function renderNotice(notice) {
@@ -314,10 +344,20 @@ function relativeTime(iso) {
   return `${Math.round(mins / 60)}h ago`;
 }
 
+let toastTimer = null;
+function flashSaved(msg = 'Saved') {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.hidden = false;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); t.hidden = true; }, 1200);
+}
+
 function renderGames() {
   $('#games-hint').textContent = config.mode === 'watched'
     ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
-    : 'Only a confirmed, full-length official NFL highlights upload is linked — never a live search, to avoid spoiling the score.';
+    : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.';
   $('#highlights-checked').textContent = data.highlightsCheckedAt
     ? `Highlights last checked: ${new Date(data.highlightsCheckedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : '';
@@ -326,21 +366,29 @@ function renderGames() {
   const watched = store.watchedFor(config, config.leagueId, config.week);
 
   for (const g of data.games) {
-    const card = el('div', 'game');
+    const isWatched = Boolean(watched[g.gameKey]);
+    const card = el('div', `game${isWatched ? ' watched' : ''}`);
+
+    // One compact line: kickoff time (never a score) · matchup, plus a tiny
+    // live/final status tag so you can tell what's on without a scoreline.
     const info = el('div', 'info');
-    info.append(el('div', 'matchup-name', `${g.away} @ ${g.home}`));
-    // Status only — never a score. Pre-game shows kickoff time.
-    const status = g.state === 'pre'
-      ? new Date(g.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })
-      : g.state === 'post' ? 'Final' : 'In progress';
-    info.append(el('div', 'status', status));
+    const kickoff = new Date(g.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    const tag = g.state === 'post' ? 'Final' : g.state === 'in' ? 'Live' : '';
+    const line = el('div', 'matchup-name');
+    line.append(el('span', 'kick', kickoff), el('span', null, ` · ${g.away} @ ${g.home}`));
+    if (tag) line.append(el('span', `tag ${g.state}`, tag));
+    info.append(line);
     card.append(info);
 
     const toggle = el('label', 'watch-toggle');
     const cb = el('input');
     cb.type = 'checkbox';
-    cb.checked = Boolean(watched[g.gameKey]);
-    cb.onchange = () => { store.setWatched(config, config.leagueId, config.week, g.gameKey, cb.checked); render(); };
+    cb.checked = isWatched;
+    cb.onchange = () => {
+      store.setWatched(config, config.leagueId, config.week, g.gameKey, cb.checked);
+      flashSaved();
+      render();
+    };
     toggle.append(cb, el('span', 'status', 'seen'));
     card.append(toggle);
 
@@ -348,25 +396,78 @@ function renderGames() {
     // (never a live search — its results page can itself show a score).
     const video = data.highlights[g.gameKey];
     if (video) {
-      const a = el('a', 'yt', `Highlights ▶▶ · posted ${relativeTime(video.publishedAt)}`);
+      const a = el('a', 'yt', '▶ Highlights');
+      a.title = `Posted ${relativeTime(video.publishedAt)}`;
       a.href = `https://www.youtube.com/watch?v=${video.id}`;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       card.append(a);
     } else {
-      const label = g.state === 'post' ? 'Highlights not posted yet' : 'Highlights available after final';
+      const label = g.state === 'post' ? 'No highlight yet' : '—';
       card.append(el('span', 'yt pending', label));
     }
     list.append(card);
   }
 }
 
+function renderNews(ctx) {
+  if (config.mode !== 'delay') return;
+  $('#news-hint').textContent =
+    `Latest scoring, delayed ${config.delayMinutes} min to match your view — never ahead of it.`;
+  const feed = $('#news-feed');
+  feed.replaceChildren();
+
+  // Only snapshots old enough for the delay are ever seen (spoiler rule 1);
+  // the gating decision lives in gate.js, we just format the result here.
+  const snaps = visibleSnapshots(ctx);
+  const myStarters = data.mySide?.starters || [];
+  const oppStarters = data.oppSide?.starters || [];
+  const events = buildFeed(snaps, data.playerMeta, [...myStarters, ...oppStarters]);
+
+  if (!events.length) {
+    feed.append(el('div', 'news-empty',
+      'No plays yet in your delayed window. Scoring will appear here as it clears the delay.'));
+    return;
+  }
+
+  const mine = new Set(myStarters);
+  for (const ev of events.slice(0, 60)) {
+    const item = el('div', 'news-item');
+    const delta = el('div', `delta${ev.pointsDelta < 0 ? ' neg' : ''}`,
+      `${ev.pointsDelta > 0 ? '+' : ''}${ev.pointsDelta.toFixed(1)}`);
+    const body = el('div', 'body');
+    const who = mine.has(ev.pid) ? `${ev.name}` : `${ev.name} (opp)`;
+    body.append(el('div', 'who', who));
+    if (ev.description) body.append(el('div', 'what', ev.description));
+    const when = el('div', 'when',
+      new Date(ev.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    item.append(delta, body, when);
+    feed.append(item);
+  }
+}
+
+/* ---------------- drawer ---------------- */
+
+function openDrawer() { $('#drawer').hidden = false; }
+function closeDrawer() { $('#drawer').hidden = true; }
+
 /* ---------------- events ---------------- */
 
 $('#btn-connect').onclick = () => connect();
 $('#username').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
-$('#btn-settings').onclick = showSetup;
-$('#btn-mode').onclick = showModeChoice;
+$('#btn-menu').onclick = openDrawer;
+document.querySelectorAll('#drawer [data-close]').forEach((elm) => { elm.onclick = closeDrawer; });
+$('#btn-settings').onclick = () => { closeDrawer(); showSetup(); };
+$('#btn-set-default').onclick = () => {
+  config.defaultLeagueId = config.leagueId;
+  config.defaultSeason = config.season;
+  config.defaultWeek = config.week;
+  config.defaultMode = config.mode;
+  config.defaultDelayMinutes = config.delayMinutes;
+  store.saveConfig(config);
+  flashSaved('Default set');
+  renderDefaultHint();
+};
 $('#week-select').onchange = (e) => { config.week = Number(e.target.value); store.saveConfig(config); loadWeek(); };
 $('#delay-select').onchange = (e) => { config.delayMinutes = Number(e.target.value); store.saveConfig(config); render(); };
 document.querySelectorAll('.mode-switch button').forEach((b) => {
@@ -391,5 +492,18 @@ function enterMain() {
   loadWeek();
 }
 
-if (config.userId && config.leagueId && config.season && config.week) enterMain();
-else { showSetup(); connect(config.username); }
+// A saved global default opens straight into that league + season + mode.
+if (config.userId && config.defaultLeagueId && config.defaultSeason) {
+  config.leagueId = config.defaultLeagueId;
+  config.season = config.defaultSeason;
+  config.week = config.defaultWeek || config.week || 1;
+  config.mode = config.defaultMode || config.mode;
+  if (config.defaultDelayMinutes) config.delayMinutes = config.defaultDelayMinutes;
+  config.modeConfirmed = true;
+  enterMain();
+} else if (config.userId && config.leagueId && config.season && config.week) {
+  enterMain();
+} else {
+  showSetup();
+  connect(config.username);
+}

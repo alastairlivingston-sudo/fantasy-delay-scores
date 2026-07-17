@@ -1,0 +1,63 @@
+# One-off backfill of YouTube highlight links for a whole season. The regular
+# recorder (record.yml) only resolves the current week during live windows, so
+# past/completed weeks you browse off-season never got links. Run this manually
+# (Actions ▸ Backfill highlights ▸ Run workflow) with a season to fill weeks 1-18.
+#
+# Writes persistent data/highlights-<season>-<week>.json files onto the
+# `snapshots` branch, preserving everything already there. Needs the
+# YOUTUBE_API_KEY secret (without it the resolver no-ops).
+
+name: Backfill highlights
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: NFL season to backfill (e.g. 2025)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshots
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch existing snapshots
+        run: |
+          mkdir -p /tmp/snapshot-data
+          if git fetch origin snapshots 2>/dev/null; then
+            git --work-tree=/tmp/snapshot-data checkout FETCH_HEAD -- data 2>/dev/null || true
+          fi
+
+      - name: Resolve highlights for weeks 1-18
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          for w in $(seq 1 18); do
+            echo "=== ${{ github.event.inputs.season }} week $w ==="
+            FORCE_SEASON=${{ github.event.inputs.season }} FORCE_WEEK=$w \
+              node scripts/resolve-highlights.js /tmp/snapshot-data/data
+          done
+
+      - name: Push snapshots branch (single commit, preserves existing data)
+        run: |
+          cd /tmp/snapshot-data
+          git init -q -b snapshots
+          git config user.name "snapshot-recorder"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -q -m "backfill highlights ${{ github.event.inputs.season }} $(date -u +%FT%TZ)"
+          git push -q --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            snapshots

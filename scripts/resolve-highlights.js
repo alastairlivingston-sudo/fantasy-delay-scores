@@ -12,7 +12,6 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getNflState, getScoreboard } from '../js/api.js';
 import { highlightQuery, isFullHighlightVideo } from '../js/youtube.js';
-import { isRollover } from '../js/snapshots.js';
 
 const NFL_CHANNEL_ID = 'UCDVYQ4Zhbm3S2dlz7P1GBDg'; // official NFL channel
 
@@ -31,10 +30,15 @@ if (!process.env.FORCE_WEEK && state.season_type !== 'regular' && state.season_t
 week = Math.min(Math.max(week || 1, 1), 18);
 
 await mkdir(dataDir, { recursive: true });
-const file = join(dataDir, 'highlights.json');
+// One persistent file per week (highlights-<season>-<week>.json). Unlike the
+// snapshot files, these are NEVER cleared on rollover — a resolved highlight is
+// permanent, so browsing a past season still shows real links.
+const file = join(dataDir, `highlights-${season}-${week}.json`);
 let stored = null;
 try { stored = JSON.parse(await readFile(file, 'utf8')); } catch { /* new file */ }
-if (isRollover(stored, season, week)) stored = { season, week, videos: {} };
+if (!stored || stored.season !== season || stored.week !== week) {
+  stored = { season, week, videos: {} };
+}
 
 const games = await getScoreboard(season, week);
 const pending = games.filter((g) => g.state === 'post' && !stored.videos[g.gameKey]);

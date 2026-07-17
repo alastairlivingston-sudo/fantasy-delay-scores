@@ -1,9 +1,13 @@
 # Server-side snapshot recorder: polls Sleeper + ESPN every ~5 minutes during
 # NFL game windows and stores snapshots on the `snapshots` branch, so delay
-# mode works even if the app wasn't open at kickoff.
+# mode works even if the app wasn't open at kickoff. Each snapshot also carries
+# a per-player stats subset (starters only) that powers the delay news-flash.
 #
-# The branch is force-pushed as a single commit each run and the data files
-# reset when the league week rolls over — the "database" clears itself weekly.
+# The per-league snapshot files are force-pushed as a single commit each run and
+# reset when the league week rolls over — that "database" clears itself weekly.
+# The per-week highlight files (highlights-<season>-<week>.json) written by the
+# resolver step are NOT cleared — a resolved highlight is permanent (see
+# backfill-highlights.yml to fill past weeks in one manual run).
 #
 # Sunday evenings (17:00-04:00 UK time) are instead covered at 60-second
 # resolution by record-live.yml, so the Sunday/Monday entries below are
@@ -58,6 +62,10 @@ jobs:
           SLEEPER_USERNAME: AlastairL
         run: node scripts/record.js /tmp/snapshot-data/data
 
+      # Resolves this week's finished games to a validated official highlight
+      # video (needs the YOUTUBE_API_KEY secret; no-ops without it). Writes a
+      # persistent highlights-<season>-<week>.json; the app never falls back to
+      # a raw YouTube search, so a missing link just shows "no highlight yet".
       - name: Resolve YouTube highlight links (optional)
         if: always()
         env:

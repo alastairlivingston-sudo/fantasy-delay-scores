@@ -9,8 +9,9 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getNflState, getUser, getLeagues, getMatchups, getScoreboard } from '../js/api.js';
+import { getNflState, getUser, getLeagues, getMatchups, getScoreboard, getStats } from '../js/api.js';
 import { shouldAppend, isRollover } from '../js/snapshots.js';
+import { pickStats } from '../js/newsflash.js';
 
 const dataDir = process.argv[2];
 if (!dataDir) { console.error('usage: node scripts/record.js <dataDir>'); process.exit(1); }
@@ -28,9 +29,10 @@ else if (state.season_type !== 'regular' && state.season_type !== 'post') {
 week = Math.min(Math.max(week || 1, 1), 18);
 
 const user = await getUser(username);
-const [leagues, games] = await Promise.all([
+const [leagues, games, stats] = await Promise.all([
   getLeagues(user.user_id, season),
   getScoreboard(season, week),
+  getStats(season, week).catch(() => ({})), // news-flash detail is optional
 ]);
 const gameStates = {};
 for (const g of games) gameStates[g.gameKey] = { state: g.state, progress: g.progress };
@@ -41,8 +43,15 @@ let appended = 0;
 for (const league of leagues) {
   const matchups = await getMatchups(league.league_id, week);
   const players_points = {};
-  for (const m of matchups) Object.assign(players_points, m.players_points || {});
-  const snap = { t: Date.now(), players_points, gameStates };
+  const player_stats = {};
+  for (const m of matchups) {
+    Object.assign(players_points, m.players_points || {});
+    for (const pid of m.starters || []) {
+      const picked = pickStats(stats[pid]);
+      if (Object.keys(picked).length) player_stats[pid] = picked;
+    }
+  }
+  const snap = { t: Date.now(), players_points, gameStates, player_stats };
 
   const file = join(dataDir, `${league.league_id}.json`);
   let stored = null;

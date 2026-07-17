@@ -36,6 +36,12 @@ check('projections include player team + stats', proj.length > 100
   && proj[0].player_id && proj[0].stats && (proj[0].player?.team || proj[0].team));
 check('projections include DEF rows', proj.some((r) => r.player?.position === 'DEF'));
 
+const stats = await getJson(
+  `https://api.sleeper.com/stats/nfl/${SEASON}/${WEEK}?season_type=regular&position[]=RB&order_by=pts_ppr`);
+check('stats include per-player actuals (rush_yd/rush_td)', stats.length > 50
+  && stats[0].player_id && stats[0].stats
+  && stats.some((r) => r.stats && (r.stats.rush_yd || r.stats.rush_td)));
+
 const sb = await getJson(
   `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${WEEK}&dates=${SEASON}`);
 check('scoreboard has events with status + competitors', sb.events?.length > 10

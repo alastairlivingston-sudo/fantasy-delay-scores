@@ -52,15 +52,38 @@ button.ghost { background: transparent; min-height: 36px; padding: 6px 10px; }
 
 /* ---------- Header ---------- */
 header { padding: 12px 16px 8px; position: sticky; top: 0; background: var(--bg); z-index: 5; }
-.header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.league-name { font-weight: 700; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.header-controls { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.header-row { display: flex; align-items: center; gap: 10px; }
+.header-row #btn-menu { font-size: 1.3rem; line-height: 1; flex-shrink: 0; }
+.league-name { font-weight: 700; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.mode-indicator {
+  flex-shrink: 0; font-size: .72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--muted); background: var(--card);
+  padding: 4px 9px; border-radius: 999px;
+}
 
 .mode-switch { display: flex; background: var(--card); border-radius: 12px; padding: 4px; gap: 4px; }
 .mode-switch button { flex: 1; min-height: 40px; background: transparent; color: var(--muted); font-weight: 600; }
 .mode-switch button.active { background: var(--accent); color: #fff; }
 
 .delay-controls { display: flex; align-items: center; gap: 10px; padding: 10px 2px 0; color: var(--muted); font-size: .9rem; }
+
+/* ---------- Drawer ---------- */
+.drawer { position: fixed; inset: 0; z-index: 30; }
+.drawer-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+.drawer-panel {
+  position: absolute; top: 0; left: 0; bottom: 0; width: min(84%, 340px);
+  background: var(--bg); border-right: 1px solid #2a3050;
+  padding: 16px 18px calc(16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 18px; overflow-y: auto;
+  animation: drawer-in .18s ease;
+}
+@keyframes drawer-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; }
+.drawer-head h2 { font-size: 1.2rem; }
+.drawer-section { display: flex; flex-direction: column; gap: 8px; }
+.drawer-label { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.drawer-hint { font-size: .78rem; color: var(--muted); }
+button.secondary { background: var(--card2); text-align: left; }
 
 .notice {
   margin: 8px 16px; padding: 10px 14px; border-radius: var(--radius);
@@ -100,25 +123,63 @@ header { padding: 12px 16px 8px; position: sticky; top: 0; background: var(--bg)
 .row .pts .hidden-pts, .g.hidden-pts { color: var(--muted); }
 
 /* ---------- Games ---------- */
-.hint { color: var(--muted); font-size: .85rem; margin: 6px 2px 12px; }
-.games-list { display: flex; flex-direction: column; gap: 8px; }
+.hint { color: var(--muted); font-size: .85rem; margin: 6px 2px 10px; }
+.games-list { display: flex; flex-direction: column; gap: 6px; }
 .game {
-  background: var(--card); border-radius: var(--radius); padding: 12px 14px;
-  display: flex; align-items: center; gap: 12px;
+  background: var(--card); border-radius: 10px; padding: 8px 12px;
+  display: flex; align-items: center; gap: 10px;
 }
+.game.watched { background: color-mix(in srgb, var(--good) 12%, var(--card)); }
 .game .info { flex: 1; min-width: 0; }
-.game .matchup-name { font-weight: 600; }
-.game .status { color: var(--muted); font-size: .8rem; }
-.game a.yt {
-  color: var(--accent); text-decoration: none; font-size: .85rem;
-  padding: 8px 10px; background: var(--card2); border-radius: 8px; white-space: nowrap;
+.game .matchup-name {
+  font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: baseline; gap: 4px;
 }
-.game .watch-toggle { display: flex; align-items: center; gap: 6px; }
+.game .matchup-name .kick { color: var(--muted); font-variant-numeric: tabular-nums; }
+.game .matchup-name .tag {
+  margin-left: 6px; font-size: .65rem; font-weight: 700; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 5px; letter-spacing: .03em;
+}
+.game .tag.post { background: #2a3050; color: var(--muted); }
+.game .tag.in { background: var(--bad); color: #fff; }
+.game a.yt {
+  color: var(--accent); text-decoration: none; font-size: .8rem; font-weight: 600;
+  padding: 6px 9px; background: var(--card2); border-radius: 8px; white-space: nowrap;
+}
+.game .watch-toggle { display: flex; align-items: center; }
+.game .watch-toggle .status { display: none; }
 .game input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--good); }
 .game .yt.pending {
-  color: var(--muted); background: transparent; border: 1px dashed #2a3050;
+  color: var(--muted); background: transparent; font-size: .8rem;
   cursor: default; pointer-events: none;
 }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: calc(72px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(8px);
+  background: var(--good); color: #06210f; font-weight: 700; font-size: .85rem;
+  padding: 8px 16px; border-radius: 999px; z-index: 20; opacity: 0;
+  transition: opacity .15s ease, transform .15s ease; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- News flash ---------- */
+.news-feed { display: flex; flex-direction: column; gap: 6px; }
+.news-item {
+  background: var(--card); border-radius: 10px; padding: 9px 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+.news-item .body { flex: 1; min-width: 0; }
+.news-item .who { font-weight: 600; font-size: .9rem; }
+.news-item .what { color: var(--muted); font-size: .8rem; }
+.news-item .delta {
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: .95rem;
+  color: var(--good); white-space: nowrap;
+}
+.news-item .delta.neg { color: var(--bad); }
+.news-item .when { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.news-empty { color: var(--muted); font-size: .88rem; padding: 8px 2px; }
 
 /* ---------- Bottom nav ---------- */
 .bottom-nav {

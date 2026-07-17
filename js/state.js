@@ -15,12 +15,17 @@ function write(key, value) {
 }
 
 export function loadConfig() {
-  return read(CONFIG_KEY, {
+  const config = read(CONFIG_KEY, {
     username: 'AlastairL', userId: null, leagueId: null,
     season: null, week: null,
-    mode: 'live', delayMinutes: 2, modeConfirmed: false,
+    mode: 'watched', delayMinutes: 2, modeConfirmed: false,
+    defaultLeagueId: null, defaultSeason: null, defaultWeek: null,
+    defaultMode: null, defaultDelayMinutes: null,
     watched: {}, // {"<leagueId>:<week>": {gameKey: true}}
   });
+  // Live mode was removed; anyone with it stored falls back to watched.
+  if (config.mode === 'live') config.mode = 'watched';
+  return config;
 }
 export function saveConfig(config) { write(CONFIG_KEY, config); }
 
