@@ -3,7 +3,7 @@
 // repo is public); for a private repo set GH_SNAPSHOTS_TOKEN in the Vercel
 // project env (fine-grained PAT, Contents: read-only, this repo only).
 
-const REPO = process.env.SNAPSHOTS_REPO || 'alastairlivingston-sudo/Sleeper-app-2';
+const REPO = process.env.SNAPSHOTS_REPO || 'alastairlivingston-sudo/fantasy-delay-scores';
 const BRANCH = 'snapshots';
 
 export default async function handler(req, res) {

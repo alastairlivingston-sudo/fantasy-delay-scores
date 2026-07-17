@@ -16,9 +16,9 @@ function write(key, value) {
 
 export function loadConfig() {
   return read(CONFIG_KEY, {
-    username: '', userId: null, leagueId: null,
+    username: 'AlastairL', userId: null, leagueId: null,
     season: null, week: null,
-    mode: 'live', delayMinutes: 60,
+    mode: 'live', delayMinutes: 2, modeConfirmed: false,
     watched: {}, // {"<leagueId>:<week>": {gameKey: true}}
   });
 }
