@@ -1,6 +1,12 @@
 [build]
   publish = "."
 
+# The standalone highlights view has its own shareable URL; serve the SPA there.
+[[redirects]]
+  from = "/highlights"
+  to = "/index.html"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]

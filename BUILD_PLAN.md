@@ -79,6 +79,24 @@ related videos). Phase 2 option: YouTube Data API lookup of the exact NFL
 video ID to deep-link straight into the player, skipping the results page.
 Requires an API key, so not in the keyless v1.
 
+### 1.4a Standalone highlights view — ✅ league-free `/highlights`
+
+A second entry point that shows just the week's official highlight links, with
+no Sleeper league or username required. It works because highlights are already
+league-independent: `scripts/resolve-highlights.js` keys them by `gameKey`
+across *every* game in a week and never clears them on rollover, so the view
+needs only the ESPN scoreboard + the resolved `highlights-<season>-<week>.json`
+file. It has its own shareable URL (`/highlights`, a `vercel.json` rewrite /
+`netlify.toml` redirect to `index.html`), boots straight in without the setup
+flow, and defaults to the most recent week that has finished games (falling
+back a week mid-week so it never opens empty), with a week selector to browse
+others. It connects to the rest of the app only through the hamburger menu —
+the main drawer links out to it, its own menu links back to the matchup view.
+All the usual spoiler guarantees hold unchanged (no scores; only a
+resolver-confirmed, full-length official upload is ever linked). `js/weeks.js`
+holds the pure week-selection logic (node-tested); rendering reuses the Games
+tab's card builder.
+
 ### 1.5 Hosting & scaffolding — ✅ static single-page app; Vercel recommended, Netlify works identically
 
 No secrets, no backend ⇒ pure static site (one `index.html` + ES modules, no
@@ -107,6 +125,7 @@ js/
   gate.js             PURE: live/watched/delay gating of players_points
   project.js          PURE: expected finals + win probability
   youtube.js          PURE: spoiler-safe highlight link builder
+  weeks.js            PURE: week selection for the league-free highlights view
   app.js              UI controller / rendering
 tests/                node:test unit tests for the pure modules
 scripts/smoke.js      live-API contract check (shapes still match)

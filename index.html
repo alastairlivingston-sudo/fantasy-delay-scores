@@ -98,6 +98,42 @@
       </nav>
     </section>
 
+    <!-- Standalone highlights view (no league / matchup needed) -->
+    <section id="view-highlights" hidden>
+      <header>
+        <div class="header-row">
+          <button id="btn-hl-menu" class="ghost" aria-label="Menu">☰</button>
+          <span class="league-name">Game highlights</span>
+          <button id="btn-hl-refresh" class="ghost" aria-label="Refresh app" title="Refresh">↻</button>
+        </div>
+      </header>
+
+      <div class="hl-controls">
+        <label for="hl-week-select">Week</label>
+        <select id="hl-week-select" aria-label="Week"></select>
+      </div>
+
+      <p class="hint">Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.</p>
+      <p class="hint" id="hl-checked"></p>
+      <p id="hl-error" class="error" hidden></p>
+      <div id="hl-list" class="games-list"></div>
+    </section>
+
+    <!-- Highlights view menu: the way back into the league app -->
+    <div id="hl-drawer" class="drawer" hidden>
+      <div class="drawer-scrim" data-hl-close></div>
+      <aside class="drawer-panel">
+        <div class="drawer-head">
+          <h2>Menu</h2>
+          <button class="ghost" data-hl-close aria-label="Close menu">✕</button>
+        </div>
+        <div class="drawer-section">
+          <button id="btn-hl-to-app" class="secondary">My matchup</button>
+          <p class="drawer-hint">Highlights don’t need a league. Switch to your spoiler-safe matchup view any time.</p>
+        </div>
+      </aside>
+    </div>
+
     <!-- Slide-in menu (mode, week, default, league/user) -->
     <div id="drawer" class="drawer" hidden>
       <div class="drawer-scrim" data-close></div>
@@ -135,6 +171,11 @@
         <div class="drawer-section">
           <button id="btn-set-default" class="secondary">Make this my default</button>
           <p id="default-hint" class="drawer-hint"></p>
+        </div>
+
+        <div class="drawer-section">
+          <button id="btn-to-highlights" class="secondary">Latest game highlights</button>
+          <p class="drawer-hint">Just the week’s official highlight links — no league needed.</p>
         </div>
 
         <div class="drawer-section">
