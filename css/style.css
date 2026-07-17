@@ -46,6 +46,7 @@ button.primary { background: var(--accent); font-weight: 600; }
 button.ghost { background: transparent; min-height: 36px; padding: 6px 10px; }
 .league-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .league-list button { text-align: left; padding: 14px; }
+.league-list button.active { outline: 2px solid var(--accent); }
 .league-list .meta { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
 .error { color: var(--bad); }
 
@@ -114,6 +115,10 @@ header { padding: 12px 16px 8px; position: sticky; top: 0; background: var(--bg)
 }
 .game .watch-toggle { display: flex; align-items: center; gap: 6px; }
 .game input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--good); }
+.game .yt.pending {
+  color: var(--muted); background: transparent; border: 1px dashed #2a3050;
+  cursor: default; pointer-events: none;
+}
 
 /* ---------- Bottom nav ---------- */
 .bottom-nav {

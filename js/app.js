@@ -5,7 +5,6 @@ import * as store from './state.js';
 import { gateMatchup } from './gate.js';
 import { mergeSnapshots } from './snapshots.js';
 import { scoreProjection, winProbability } from './project.js';
-import { highlightSearchUrl } from './youtube.js';
 import { startRecorder } from './recorder.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -26,8 +25,17 @@ let activeTab = 'matchup';
 function showLoading(on) { $('#loading').hidden = !on; }
 function fail(msg) { const e = $('#setup-error'); e.textContent = msg; e.hidden = false; }
 
-async function connect() {
-  const username = $('#username').value.trim();
+// A league not yet underway (drafting/pre-draft) has no current week; a
+// completed prior season is browsed at its final week.
+function weekForSeason(nfl, leagueSeason) {
+  if (leagueSeason === Number(nfl.season) && nfl.season_type === 'regular') {
+    return Math.max(1, nfl.week);
+  }
+  return leagueSeason === Number(nfl.previous_season) ? 17 : 1;
+}
+
+async function connect(usernameArg) {
+  const username = (usernameArg ?? $('#username').value).trim();
   if (!username) return;
   showLoading(true);
   $('#setup-error').hidden = true;
@@ -36,19 +44,32 @@ async function connect() {
     if (!user?.user_id) throw new Error('User not found');
     config.username = username;
     config.userId = user.user_id;
-    // Off-season/pre-season: fall back to the last completed season.
-    config.season = nfl.season_type === 'regular' || nfl.season_type === 'post'
-      ? Number(nfl.season) : Number(nfl.previous_season);
-    config.week = nfl.season_type === 'regular' ? Math.max(1, nfl.week) : 17;
     store.saveConfig(config);
-    const leagues = await api.getLeagues(user.user_id, config.season);
-    if (!leagues.length) return fail(`No ${config.season} leagues found for ${username}.`);
+
+    // In-season: only the active season's leagues exist. Off/pre-season:
+    // show both the upcoming season's leagues (may be mid-draft) and last
+    // season's (for browsing), since a brand-new league only exists in one.
+    const currentSeason = Number(nfl.season);
+    const seasons = nfl.season_type === 'regular' || nfl.season_type === 'post'
+      ? [currentSeason]
+      : [currentSeason, Number(nfl.previous_season)];
+    const leagueLists = await Promise.all(seasons.map((s) => api.getLeagues(user.user_id, s)));
+    const leagues = leagueLists.flat()
+      .sort((a, b) => Number(b.season) - Number(a.season) || a.name.localeCompare(b.name));
+    if (!leagues.length) return fail(`No leagues found for ${username}.`);
     const list = $('#setup-leagues');
     list.replaceChildren();
     for (const lg of leagues) {
       const b = el('button');
       b.append(el('span', null, lg.name), el('span', 'meta', `${lg.total_rosters} teams · ${lg.season}`));
-      b.onclick = () => { config.leagueId = lg.league_id; store.saveConfig(config); enterMain(); };
+      b.onclick = () => {
+        config.leagueId = lg.league_id;
+        config.season = Number(lg.season);
+        config.week = weekForSeason(nfl, config.season);
+        config.modeConfirmed = false;
+        store.saveConfig(config);
+        enterMain();
+      };
       list.append(b);
     }
   } catch (err) {
@@ -61,8 +82,23 @@ async function connect() {
 function showSetup() {
   stopRecorder?.();
   $('#view-main').hidden = true;
+  $('#view-mode').hidden = true;
   $('#view-setup').hidden = false;
   $('#username').value = config.username || '';
+}
+
+function updateModeChoiceUI() {
+  document.querySelectorAll('#mode-choices button').forEach((b) =>
+    b.classList.toggle('active', b.dataset.mode === config.mode));
+  $('#mode-delay-controls').hidden = config.mode !== 'delay';
+  $('#mode-delay-select').value = String(config.delayMinutes);
+}
+
+function showModeChoice() {
+  $('#view-setup').hidden = true;
+  $('#view-main').hidden = true;
+  $('#view-mode').hidden = false;
+  updateModeChoiceUI();
 }
 
 /* ---------------- data loading ---------------- */
@@ -107,6 +143,7 @@ async function loadWeek() {
       league, games, mySide, oppSide, playerMeta, playerGames, projections,
       remoteSnapshots: remote?.snapshots || [],
       highlights: highlights?.videos || {},
+      highlightsCheckedAt: highlights?.checkedAt || null,
       slots: (league.roster_positions || []).filter((p) => p !== 'BN'),
       myName: nameOf(mySide), oppName: nameOf(oppSide),
     };
@@ -153,10 +190,12 @@ function gate() {
 function render() {
   if (!data) return;
   $('#view-setup').hidden = true;
+  $('#view-mode').hidden = true;
   $('#view-main').hidden = false;
   $('#league-name').textContent = data.league.name;
   renderWeekSelect();
   renderModeSwitch();
+  renderModeButton();
 
   const gated = gate();
   renderNotice(gated.me.notice);
@@ -183,6 +222,11 @@ function renderModeSwitch() {
     b.classList.toggle('active', b.dataset.mode === config.mode));
   $('#delay-controls').hidden = config.mode !== 'delay';
   $('#delay-select').value = String(config.delayMinutes);
+}
+
+function renderModeButton() {
+  const labels = { live: 'Live', watched: 'Watched', delay: `Delay ${config.delayMinutes}m` };
+  $('#btn-mode').textContent = labels[config.mode] || config.mode;
 }
 
 function renderNotice(notice) {
@@ -262,10 +306,21 @@ function renderStarters(gated) {
   }
 }
 
+function relativeTime(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(ms / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
+
 function renderGames() {
   $('#games-hint').textContent = config.mode === 'watched'
     ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
-    : 'Highlights links open a YouTube search for the official (score-free) NFL video.';
+    : 'Only a confirmed, full-length official NFL highlights upload is linked — never a live search, to avoid spoiling the score.';
+  $('#highlights-checked').textContent = data.highlightsCheckedAt
+    ? `Highlights last checked: ${new Date(data.highlightsCheckedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : '';
   const list = $('#games-list');
   list.replaceChildren();
   const watched = store.watchedFor(config, config.leagueId, config.week);
@@ -289,25 +344,29 @@ function renderGames() {
     toggle.append(cb, el('span', 'status', 'seen'));
     card.append(toggle);
 
-    // Direct link to the exact official video when the resolver found one
-    // (skips the YouTube results page entirely); search link otherwise.
-    const videoId = data.highlights[g.gameKey];
-    const a = el('a', 'yt', videoId ? 'Highlights ▶▶' : 'Highlights ▶');
-    a.href = videoId
-      ? `https://www.youtube.com/watch?v=${videoId}`
-      : highlightSearchUrl({ away: g.away, home: g.home, week: config.week, season: config.season });
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    card.append(a);
+    // Only a resolver-confirmed, full-length official upload is ever linked
+    // (never a live search — its results page can itself show a score).
+    const video = data.highlights[g.gameKey];
+    if (video) {
+      const a = el('a', 'yt', `Highlights ▶▶ · posted ${relativeTime(video.publishedAt)}`);
+      a.href = `https://www.youtube.com/watch?v=${video.id}`;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      card.append(a);
+    } else {
+      const label = g.state === 'post' ? 'Highlights not posted yet' : 'Highlights available after final';
+      card.append(el('span', 'yt pending', label));
+    }
     list.append(card);
   }
 }
 
 /* ---------------- events ---------------- */
 
-$('#btn-connect').onclick = connect;
+$('#btn-connect').onclick = () => connect();
 $('#username').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
 $('#btn-settings').onclick = showSetup;
+$('#btn-mode').onclick = showModeChoice;
 $('#week-select').onchange = (e) => { config.week = Number(e.target.value); store.saveConfig(config); loadWeek(); };
 $('#delay-select').onchange = (e) => { config.delayMinutes = Number(e.target.value); store.saveConfig(config); render(); };
 document.querySelectorAll('.mode-switch button').forEach((b) => {
@@ -316,8 +375,21 @@ document.querySelectorAll('.mode-switch button').forEach((b) => {
 document.querySelectorAll('.bottom-nav button').forEach((b) => {
   b.onclick = () => { activeTab = b.dataset.tab; render(); };
 });
+document.querySelectorAll('#mode-choices button').forEach((b) => {
+  b.onclick = () => { config.mode = b.dataset.mode; updateModeChoiceUI(); };
+});
+$('#mode-delay-select').onchange = (e) => { config.delayMinutes = Number(e.target.value); };
+$('#btn-mode-confirm').onclick = () => {
+  config.modeConfirmed = true;
+  store.saveConfig(config);
+  if (data) render(); else loadWeek();
+};
 
-function enterMain() { $('#view-setup').hidden = true; loadWeek(); }
+function enterMain() {
+  $('#view-setup').hidden = true;
+  if (!config.modeConfirmed) { showModeChoice(); return; }
+  loadWeek();
+}
 
 if (config.userId && config.leagueId && config.season && config.week) enterMain();
-else showSetup();
+else { showSetup(); connect(config.username); }
