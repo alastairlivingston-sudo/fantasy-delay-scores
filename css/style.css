@@ -66,6 +66,16 @@ header {
   letter-spacing: .03em; color: var(--muted); background: var(--card);
   padding: 4px 9px; border-radius: 999px;
 }
+#btn-refresh { flex-shrink: 0; font-size: 1.15rem; line-height: 1; color: var(--muted); }
+/* When a newer build is live, the plain ↻ glyph becomes an accented "Update"
+   pill: font-size:0 hides the glyph and ::before carries the label. */
+#btn-refresh.update {
+  font-size: 0; color: #06210f; background: var(--good);
+  padding: 6px 12px; border-radius: 999px;
+  animation: nudge 1.6s ease-in-out infinite;
+}
+#btn-refresh.update::before { content: '↻ Update'; font-size: .78rem; font-weight: 700; }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
 .mode-switch { display: flex; background: var(--card); border-radius: 12px; padding: 4px; gap: 4px; }
 .mode-switch button { flex: 1; min-height: 40px; background: transparent; color: var(--muted); font-weight: 600; }

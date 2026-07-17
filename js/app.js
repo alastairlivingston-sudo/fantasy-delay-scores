@@ -461,6 +461,36 @@ function renderNews(ctx) {
   }
 }
 
+/* ---------------- update check ---------------- */
+// Detect when a newer build has been deployed and offer a one-tap refresh, so
+// nobody has to clear their cache to update. /api/version returns the live
+// deployment id; if it changes from what we booted with, a new version is out.
+// (Combined with no-cache headers on the HTML/JS/CSS, the reload then actually
+// picks up the new code.)
+
+let bootVersion = null;
+
+async function fetchVersion() {
+  try {
+    const res = await fetch('/api/version', { cache: 'no-store' });
+    if (!res.ok) return null;
+    return (await res.json()).version || null;
+  } catch { return null; }
+}
+
+async function checkForUpdate() {
+  const v = await fetchVersion();
+  if (!v) return; // no version endpoint (local dev / other host) — button still refreshes manually
+  if (bootVersion === null) { bootVersion = v; return; }
+  if (v !== bootVersion) $('#btn-refresh').classList.add('update');
+}
+
+function startUpdateChecks() {
+  checkForUpdate();
+  setInterval(checkForUpdate, 5 * 60_000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+}
+
 /* ---------------- drawer ---------------- */
 
 function openDrawer() { $('#drawer').hidden = false; }
@@ -471,6 +501,7 @@ function closeDrawer() { $('#drawer').hidden = true; }
 $('#btn-connect').onclick = () => connect();
 $('#username').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
 $('#btn-menu').onclick = openDrawer;
+$('#btn-refresh').onclick = () => location.reload();
 document.querySelectorAll('#drawer [data-close]').forEach((elm) => { elm.onclick = closeDrawer; });
 $('#btn-settings').onclick = () => { closeDrawer(); showSetup(); };
 $('#btn-set-default').onclick = () => {
@@ -522,3 +553,5 @@ if (config.userId && config.defaultLeagueId && config.defaultSeason) {
   showSetup();
   connect(config.username);
 }
+
+startUpdateChecks();
