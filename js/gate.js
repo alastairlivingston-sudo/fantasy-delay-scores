@@ -91,3 +91,17 @@ export function gateSide(side, ctx) {
 export function gateMatchup(mySide, oppSide, ctx) {
   return { me: gateSide(mySide, ctx), opp: gateSide(oppSide, ctx) };
 }
+
+/**
+ * The snapshots a delay-mode viewer is allowed to see: only those old enough
+ * for the delay (t <= now - delayMs), oldest first. This is the single gating
+ * decision behind the news feed — the feed formatter never sees newer data.
+ * Returns [] outside delay mode.
+ */
+export function visibleSnapshots(ctx) {
+  if (ctx.mode !== 'delay') return [];
+  const cutoff = ctx.now - ctx.delayMs;
+  return (ctx.snapshots || [])
+    .filter((s) => s && typeof s.t === 'number' && s.t <= cutoff)
+    .sort((a, b) => a.t - b.t);
+}

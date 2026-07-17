@@ -42,6 +42,20 @@ export async function getProjections(season, week) {
 }
 
 /**
+ * Actual per-player stats for the week (rush_yd, rush_td, rec_td, …), keyed by
+ * player_id. Used to describe HOW points were scored in the delay news-flash.
+ * Returns {pid: statsObject}.
+ */
+export async function getStats(season, week) {
+  const positions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map((p) => `position[]=${p}`).join('&');
+  const rows = await getJson(
+    `${SLEEPER_DATA}/stats/nfl/${season}/${week}?season_type=regular&${positions}&order_by=pts_ppr`);
+  const byId = {};
+  for (const r of rows) byId[r.player_id] = r.stats || {};
+  return byId;
+}
+
+/**
  * The week's NFL games from ESPN, normalised to Sleeper team codes.
  * Returns [{gameKey, away, home, date, state: 'pre'|'in'|'post', progress,
  *           detail}] — deliberately NO scores: spoiler rule 2 says the UI
@@ -91,7 +105,7 @@ async function getRemoteFile(file, season, week) {
 export const getRemoteSnapshots = (leagueId, season, week) =>
   getRemoteFile(`${leagueId}.json`, season, week);
 export const getRemoteHighlights = (season, week) =>
-  getRemoteFile('highlights.json', season, week);
+  getRemoteFile(`highlights-${season}-${week}.json`, season, week);
 
 /** {pid: gameKey} for a set of players, joining their team to the week's games. */
 export function mapPlayersToGames(playerIds, playerMeta, games) {
