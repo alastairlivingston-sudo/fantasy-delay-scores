@@ -32,3 +32,26 @@ export function isFullHighlightVideo({ title, durationIso }) {
     && /highlights/i.test(title || '')
     && !SCORE_LIKE.test(title || '');
 }
+
+/* ---------------- retry policy ---------------- */
+// The official upload usually appears within a few hours of the final whistle,
+// so the resolver has to keep checking after a game ends — but a YouTube search
+// costs 100 of the free tier's 10k daily units, and the resolver now runs
+// hourly all season. Retries therefore back off and eventually give up, which
+// bounds a whole week's worst case (every game unresolved) to well under quota.
+//
+// Index = attempts already made; value = minutes to wait since the last try.
+const RETRY_WAIT_MINUTES = [0, 30, 60, 120, 240, 480, 720, 1440];
+
+/** After this many fruitless searches a game is left alone (no official upload). */
+export const MAX_HIGHLIGHT_ATTEMPTS = RETRY_WAIT_MINUTES.length;
+
+/**
+ * Should a finished game with no resolved highlight be searched for again?
+ * `attempts` is how many searches it has already had, `lastTriedAt` when the
+ * most recent one ran (both 0 for a game that just went final).
+ */
+export function shouldSearchAgain({ attempts = 0, lastTriedAt = 0 } = {}, now = Date.now()) {
+  if (attempts >= MAX_HIGHLIGHT_ATTEMPTS) return false;
+  return now - lastTriedAt >= RETRY_WAIT_MINUTES[attempts] * 60_000;
+}

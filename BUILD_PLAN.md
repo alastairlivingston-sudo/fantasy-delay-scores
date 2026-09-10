@@ -185,13 +185,33 @@ Player→game mapping comes from the projections payload (every player carries
     anonymous raw access once the repo is public (no token needed), or
     `GH_SNAPSHOTS_TOKEN` (fine-grained PAT, Contents read-only) if it's ever
     made private again. Missing data degrades to Phase 1 behaviour.
-  - **YouTube direct links.** `scripts/resolve-highlights.js` runs in the
-    same workflow with an optional `YOUTUBE_API_KEY` repo secret and maps
-    each finished game to the official NFL channel's highlight video ID —
-    the app then deep-links straight into the player, skipping the results
-    page. The YouTube Data API is free: 10,000 quota units/day, 100 per
-    search, results cached per week so we use ≤1,600. Without the key the
-    app keeps the spoiler-safe search links.
+  - **YouTube direct links.** `scripts/resolve-highlights.js` maps each
+    finished game to the official NFL channel's highlight video ID, using an
+    optional `YOUTUBE_API_KEY` repo secret, so the app deep-links straight
+    into the player and skips the results page. Without the key it's a no-op
+    and games just read "No highlight yet".
+
+    It runs **hourly all season** from `.github/workflows/highlights.yml`,
+    deliberately decoupled from kickoff times. It used to run only as a step
+    inside the recorders, which never worked: the official upload appears
+    HOURS after the final whistle, by which time the game window (and the
+    workflow) had closed — a Thursday-night game's last chance to resolve was
+    04:55 UTC, long before the video existed, so it stayed unresolved until
+    the following Sunday. Hourly is also the reliable cadence: GitHub
+    throttles and silently drops frequent scheduled runs on quiet repos, and
+    the recorders' `*/5` crons were in practice firing a handful of times a
+    week. Each run also re-checks the *previous* week, so a Monday-night game
+    still resolves after Sleeper's week has rolled over.
+
+    Quota (free tier: 10,000 units/day, 100 per search) is bounded from two
+    sides: `js/youtube.js`'s `shouldSearchAgain` backs a game's retries off
+    (0/30m/1h/2h/4h/8h/12h/24h) and gives up after 8 misses, and each run has
+    a per-run search budget. Resolved links are permanent and never recleared.
+
+    Sunday evenings are additionally covered from inside `record-live.js`'s
+    marathon loop (every ~10 ticks), because that job holds the `snapshots`
+    concurrency group for its whole 11-hour window and would otherwise block
+    the hourly workflow exactly when the uploads land.
   - **PWA install.** Manifest + iOS meta tags so the app pins to the home
     screen full-screen.
 

@@ -1,0 +1,99 @@
+# Hourly YouTube highlight resolution for the current NFL week.
+#
+# Why this exists as its own workflow: highlight resolution used to be a step
+# inside record.yml, which only runs during live game windows — but the official
+# NFL upload appears HOURS after the final whistle, by which time those windows
+# have closed. A Thursday-night game finishing 03:30 UTC had its last chance to
+# resolve at 04:55 UTC, long before the video existed, so it stayed
+# "No highlight yet" until the next Sunday. Running hourly, independent of
+# kickoff times, is what actually catches the upload.
+#
+# Hourly (rather than */5) is also deliberate: GitHub heavily throttles and
+# drops frequent scheduled runs on low-traffic repos — the */5 recorder crons
+# were in practice firing a handful of times a week, not every five minutes.
+#
+# Quota: one search costs 100 of the YouTube free tier's 10k daily units, so
+# scripts/resolve-highlights.js backs off per game and stops retrying a game
+# that never produces an upload (js/youtube.js). Without the YOUTUBE_API_KEY
+# secret the resolver is a no-op and this workflow just refreshes checkedAt.
+#
+# Sunday evenings are additionally covered at ~10-minute resolution from inside
+# record-live.yml's marathon job, which holds the `snapshots` concurrency group
+# for its whole 11-hour window.
+
+name: Resolve highlights
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: Season to resolve (blank = current)
+        required: false
+      week:
+        description: Week to resolve (blank = current)
+        required: false
+  schedule:
+    # Every hour during the NFL season (Sep-Dec + the January playoffs). The
+    # off-week minute keeps this away from the top-of-hour scheduling crush.
+    - cron: '23 * * 1,9-12 *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshots
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The push below replaces the whole `snapshots` branch with this runner's
+      # working tree, so a fetch that half-fails would silently destroy the
+      # recorded snapshots. Count what's on the branch here and refuse to push
+      # a smaller tree later — this job runs 24x a day, so a rare failure mode
+      # is a frequent one.
+      - name: Fetch existing snapshot data
+        id: fetch
+        run: |
+          mkdir -p /tmp/snapshot-data/data
+          if git fetch --depth=1 origin snapshots 2>/dev/null; then
+            COUNT=$(git ls-tree -r --name-only FETCH_HEAD -- data | wc -l)
+            if [ "$COUNT" -gt 0 ]; then
+              git --work-tree=/tmp/snapshot-data checkout FETCH_HEAD -- data
+            fi
+          else
+            COUNT=0
+          fi
+          echo "remote_files=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "branch currently holds $COUNT files"
+
+      - name: Resolve highlight links
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          FORCE_SEASON: ${{ github.event.inputs.season }}
+          FORCE_WEEK: ${{ github.event.inputs.week }}
+        run: node scripts/resolve-highlights.js /tmp/snapshot-data/data
+
+      - name: Push snapshots branch (single commit, preserves existing data)
+        run: |
+          cd /tmp/snapshot-data
+          LOCAL=$(find data -type f | wc -l)
+          if [ "$LOCAL" -lt "${{ steps.fetch.outputs.remote_files }}" ]; then
+            echo "refusing to push: $LOCAL local files vs ${{ steps.fetch.outputs.remote_files }} on the branch"
+            exit 1
+          fi
+          git init -q -b snapshots
+          git config user.name "snapshot-recorder"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -q -m "highlights $(date -u +%FT%TZ)"
+          git push -q --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            snapshots

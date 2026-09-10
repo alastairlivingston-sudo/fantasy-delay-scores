@@ -25,6 +25,7 @@ on:
     # NFL game windows in UTC, September–January. GitHub cron can lag a few
     # minutes; combined with the app's own 60s recording that's fine.
     - cron: '*/5 0-4 * 1,9-12 FRI'   # Thursday Night Football
+    - cron: '*/5 0-4 * 9 THU'        # Wednesday-night season opener (Sep only)
     - cron: '*/5 13-15 * 1,9-12 SUN' # Sunday early slate, before the live window
     - cron: '*/5 0-4 * 1,9-12 TUE'   # Monday Night Football
     - cron: '*/5 17-23 * 11 THU'     # Thanksgiving afternoon games
@@ -62,12 +63,13 @@ jobs:
           SLEEPER_USERNAME: AlastairL
         run: node scripts/record.js /tmp/snapshot-data/data
 
-      # Resolves this week's finished games to a validated official highlight
-      # video (needs the YOUTUBE_API_KEY secret; no-ops without it). Writes a
-      # persistent highlights-<season>-<week>.json; the app never falls back to
-      # a raw YouTube search, so a missing link just shows "no highlight yet".
+      # Opportunistic highlight resolution while we already hold the branch.
+      # This is NOT the main path any more: game windows close before the
+      # official uploads appear, so highlights.yml runs the same resolver hourly
+      # all season. Kept here because it's free once the data is checked out.
       - name: Resolve YouTube highlight links (optional)
         if: always()
+        continue-on-error: true # a highlight blip must never cost us the snapshot push
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: node scripts/resolve-highlights.js /tmp/snapshot-data/data

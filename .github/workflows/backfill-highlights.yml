@@ -59,6 +59,7 @@ jobs:
       - name: Resolve highlights for weeks 1-18
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          HIGHLIGHT_WEEKS_BACK: '0' # this loop already walks every week itself
         run: |
           for w in $(seq 1 18); do
             echo "=== $SEASON week $w ==="
