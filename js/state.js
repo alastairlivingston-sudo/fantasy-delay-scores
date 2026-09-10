@@ -21,6 +21,9 @@ export function loadConfig() {
     mode: 'watched', delayMinutes: 2, modeConfirmed: false,
     defaultLeagueId: null, defaultSeason: null, defaultWeek: null,
     defaultMode: null, defaultDelayMinutes: null,
+    // [{id, name, season, teams}] — the account's leagues, cached so the menu's
+    // league dropdown is populated before any network call comes back.
+    leagues: [],
     watched: {}, // {"<leagueId>:<week>": {gameKey: true}}
   });
   // Live mode was removed; anyone with it stored falls back to watched.

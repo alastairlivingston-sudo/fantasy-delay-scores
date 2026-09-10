@@ -149,11 +149,19 @@ for (let i = 0; i < HARD_ITERATION_CAP; i++) {
     const appended = await recordOnce();
     // Every ~10th tick, also try resolving highlight links for games that
     // have finished (cheap no-op when nothing new; keeps YouTube usage low).
+    let resolved = false;
     if (i % 10 === 0) {
-      try { execSync(`node scripts/resolve-highlights.js ${join(dataDir, 'data')}`, { stdio: 'pipe' }); }
-      catch (err) { console.warn('highlight resolve failed, continuing:', err.message); }
+      try {
+        execSync(`node scripts/resolve-highlights.js ${join(dataDir, 'data')}`, { stdio: 'inherit' });
+        resolved = true;
+      } catch (err) { console.warn('highlight resolve failed, continuing:', err.message); }
     }
-    if (appended) commitAndPush(`snapshot ${new Date().toISOString()}`);
+    // Push on a resolve too, not just an append: once every game is final the
+    // scores stop changing, so `appended` goes false for the rest of the window
+    // — which is exactly when the highlight uploads land. Gating the push on
+    // `appended` alone left them sitting in the runner's working tree until the
+    // job ended. commitAndPush is a no-op when nothing actually changed.
+    if (appended || resolved) commitAndPush(`snapshot ${new Date().toISOString()}`);
   } catch (err) {
     console.warn('tick failed, continuing:', err.message);
   }

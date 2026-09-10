@@ -49,4 +49,9 @@ jobs:
         env:
           SLEEPER_USERNAME: AlastairL
           GITHUB_TOKEN: ${{ github.token }}
+          # The loop resolves highlight links every ~10 ticks. This job holds
+          # the `snapshots` concurrency group for the whole 11-hour window, so
+          # without the key here nothing can resolve a Sunday-night game until
+          # Monday morning.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: node scripts/record-live.js /tmp/snapshot-data "${{ github.event.inputs.leg || '1' }}"

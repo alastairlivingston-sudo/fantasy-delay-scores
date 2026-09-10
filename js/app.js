@@ -21,6 +21,7 @@ const config = store.loadConfig();
 let data = null; // {league, rosters, users, matchups, playerMeta, games, mySide, oppSide, projections, playerGames, slots, myName, oppName}
 let stopRecorder = null;
 let activeTab = 'matchup';
+let nflState = null; // Sleeper's /state/nfl, cached so a league switch can re-derive the week
 
 /* ---------------- setup flow ---------------- */
 
@@ -36,6 +37,38 @@ function weekForSeason(nfl, leagueSeason) {
   return leagueSeason === Number(nfl.previous_season) ? 17 : 1;
 }
 
+// Every league on the account, newest season first, in the compact shape the
+// drawer's dropdown and the setup list both render from (and that gets cached
+// in config, so the dropdown is populated before any network call returns).
+async function fetchLeagues(userId, nfl) {
+  // In-season: only the active season's leagues exist. Off/pre-season:
+  // show both the upcoming season's leagues (may be mid-draft) and last
+  // season's (for browsing), since a brand-new league only exists in one.
+  const currentSeason = Number(nfl.season);
+  const seasons = nfl.season_type === 'regular' || nfl.season_type === 'post'
+    ? [currentSeason]
+    : [currentSeason, Number(nfl.previous_season)];
+  const lists = await Promise.all(seasons.map((s) => api.getLeagues(userId, s)));
+  return lists.flat()
+    .sort((a, b) => Number(b.season) - Number(a.season) || a.name.localeCompare(b.name))
+    .map((lg) => ({
+      id: lg.league_id, name: lg.name, season: Number(lg.season), teams: lg.total_rosters,
+    }));
+}
+
+// Open a league. The week carries over between leagues in the same season
+// (they share the NFL calendar) and is re-derived only when the season changes.
+function selectLeague(lg, { pickMode = false } = {}) {
+  config.leagueId = lg.id;
+  if (lg.season !== config.season || !config.week) {
+    config.season = lg.season;
+    config.week = nflState ? weekForSeason(nflState, lg.season) : 1;
+  }
+  if (pickMode) config.modeConfirmed = false;
+  store.saveConfig(config);
+  enterMain();
+}
+
 async function connect(usernameArg) {
   const username = (usernameArg ?? $('#username').value).trim();
   if (!username) return;
@@ -44,34 +77,24 @@ async function connect(usernameArg) {
   try {
     const [user, nfl] = await Promise.all([api.getUser(username), api.getNflState()]);
     if (!user?.user_id) throw new Error('User not found');
+    nflState = nfl;
     config.username = username;
     config.userId = user.user_id;
+
+    const leagues = await fetchLeagues(user.user_id, nfl);
+    if (!leagues.length) {
+      store.saveConfig(config);
+      return fail(`No leagues found for ${username}.`);
+    }
+    config.leagues = leagues;
     store.saveConfig(config);
 
-    // In-season: only the active season's leagues exist. Off/pre-season:
-    // show both the upcoming season's leagues (may be mid-draft) and last
-    // season's (for browsing), since a brand-new league only exists in one.
-    const currentSeason = Number(nfl.season);
-    const seasons = nfl.season_type === 'regular' || nfl.season_type === 'post'
-      ? [currentSeason]
-      : [currentSeason, Number(nfl.previous_season)];
-    const leagueLists = await Promise.all(seasons.map((s) => api.getLeagues(user.user_id, s)));
-    const leagues = leagueLists.flat()
-      .sort((a, b) => Number(b.season) - Number(a.season) || a.name.localeCompare(b.name));
-    if (!leagues.length) return fail(`No leagues found for ${username}.`);
     const list = $('#setup-leagues');
     list.replaceChildren();
     for (const lg of leagues) {
       const b = el('button');
-      b.append(el('span', null, lg.name), el('span', 'meta', `${lg.total_rosters} teams · ${lg.season}`));
-      b.onclick = () => {
-        config.leagueId = lg.league_id;
-        config.season = Number(lg.season);
-        config.week = weekForSeason(nfl, config.season);
-        config.modeConfirmed = false;
-        store.saveConfig(config);
-        enterMain();
-      };
+      b.append(el('span', null, lg.name), el('span', 'meta', `${lg.teams} teams · ${lg.season}`));
+      b.onclick = () => selectLeague(lg, { pickMode: true });
       list.append(b);
     }
   } catch (err) {
@@ -79,6 +102,20 @@ async function connect(usernameArg) {
   } finally {
     showLoading(false);
   }
+}
+
+// Keep the drawer's league list current (a new league joined mid-season, a
+// renamed one). Runs in the background after a load — a failure just leaves
+// the cached list in place, so the dropdown always works offline-ish.
+async function refreshLeagueList() {
+  if (!config.userId || !nflState) return;
+  try {
+    const leagues = await fetchLeagues(config.userId, nflState);
+    if (!leagues.length) return;
+    config.leagues = leagues;
+    store.saveConfig(config);
+    renderLeagueSelect();
+  } catch { /* keep the cached list */ }
 }
 
 function showSetup() {
@@ -111,14 +148,16 @@ async function loadWeek() {
   showLoading(true);
   try {
     const { leagueId, season, week } = config;
-    const [league, rosters, users, matchups, playerMeta, games] = await Promise.all([
+    const [league, rosters, users, matchups, playerMeta, games, nfl] = await Promise.all([
       api.getLeague(leagueId),
       api.getRosters(leagueId),
       api.getLeagueUsers(leagueId),
       api.getMatchups(leagueId, week),
       api.getProjections(season, week),
       api.getScoreboard(season, week),
+      api.getNflState().catch(() => nflState), // only needed to re-derive a week
     ]);
+    if (nfl) nflState = nfl;
 
     // Games sorted by kickoff so the list reads chronologically.
     games.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -160,21 +199,53 @@ async function loadWeek() {
     stopRecorder = startRecorder({
       leagueId, season, week,
       onSnapshot: async () => {
-        // refresh server-side snapshots every 5th local tick (~5 min)
-        if (++ticks % 5 === 0) {
-          const fresh = await api.getRemoteSnapshots(leagueId, season, week);
-          if (fresh) data.remoteSnapshots = fresh.snapshots;
-        }
+        // Every 5th local tick (~5 min), also pull what the server has moved
+        // on: recorded snapshots, game states, newly-resolved highlights.
+        if (++ticks % 5 === 0) await refreshServerData();
         render();
       },
     });
     render();
+    refreshLeagueList();
   } catch (err) {
     alert(`Failed to load: ${err.message}`);
     showSetup();
   } finally {
     showLoading(false);
   }
+}
+
+// Re-pull the parts of the week that move under an open tab: server-recorded
+// snapshots, ESPN game states, and resolved highlight links. Without this, a
+// tab left open (or a home-screen app resumed from the background) kept
+// rendering whatever the initial load fetched — so a highlight the recorder
+// resolved an hour ago stayed invisible until a full reload.
+let refreshing = null;
+function refreshServerData() {
+  if (!data || refreshing) return refreshing || Promise.resolve();
+  const { leagueId, season, week } = config;
+  refreshing = (async () => {
+    const [remote, highlights, games] = await Promise.all([
+      api.getRemoteSnapshots(leagueId, season, week),
+      api.getRemoteHighlights(season, week),
+      api.getScoreboard(season, week).catch(() => null), // transient; keep the old list
+    ]);
+    // A league or week switch may have landed while these were in flight.
+    if (config.leagueId !== leagueId || config.season !== season || config.week !== week) return;
+    if (remote) data.remoteSnapshots = remote.snapshots;
+    if (highlights) {
+      data.highlights = highlights.videos || {};
+      data.highlightsCheckedAt = highlights.checkedAt || null;
+    }
+    if (games?.length) {
+      data.games = [...games].sort((a, b) => new Date(a.date) - new Date(b.date));
+      data.playerGames = api.mapPlayersToGames(
+        [...(data.mySide?.starters || []), ...(data.oppSide?.starters || [])],
+        data.playerMeta, data.games);
+    }
+  })().catch(() => { /* transient network; the next tick retries */ })
+    .finally(() => { refreshing = null; });
+  return refreshing;
 }
 
 /* ---------------- rendering ---------------- */
@@ -201,6 +272,7 @@ function render() {
   $('#view-highlights').hidden = true;
   $('#view-main').hidden = false;
   $('#league-name').textContent = data.league.name;
+  renderLeagueSelect();
   renderWeekSelect();
   renderModeSwitch();
   renderModeIndicator();
@@ -244,6 +316,27 @@ function renderBottomNav() {
   if (!showNews && activeTab === 'news') activeTab = 'games';
   document.querySelectorAll('.bottom-nav button').forEach((b) =>
     b.classList.toggle('active', b.dataset.tab === activeTab));
+}
+
+function renderLeagueSelect() {
+  const sel = $('#league-select');
+  const known = config.leagues || [];
+  // The active league always appears, even when the cached list is stale or
+  // predates it — otherwise the dropdown would name a league you aren't in.
+  const options = known.some((l) => l.id === config.leagueId) ? known : [
+    { id: config.leagueId, season: config.season, name: data?.league?.name || 'Current league' },
+    ...known,
+  ];
+  const sig = options.map((l) => `${l.id}@${l.season}`).join('|');
+  if (sel.dataset.sig !== sig) {
+    sel.replaceChildren();
+    for (const l of options) sel.append(new Option(`${l.name} · ${l.season}`, l.id));
+    sel.dataset.sig = sig;
+  }
+  sel.value = String(config.leagueId);
+  $('#league-hint').textContent = options.length > 1
+    ? 'Switch any time — your week and spoiler mode carry over.'
+    : 'The only league on this Sleeper account.';
 }
 
 function renderWeekSelect() {
@@ -355,12 +448,31 @@ function renderStarters(gated) {
   }
 }
 
-function relativeTime(iso) {
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(ms / 60_000);
+function relativeTime(when) {
+  const mins = Math.round((Date.now() - new Date(when).getTime()) / 60_000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
-  return `${Math.round(mins / 60)}h ago`;
+  if (mins < 60 * 36) return `${Math.round(mins / 60)}h ago`;
+  return `${Math.round(mins / (60 * 24))}d ago`;
+}
+
+// How long ago the recorder last looked for this week's highlights. It has to
+// carry its AGE, not just a clock time: a stalled recorder rendered as
+// "09:17 AM" reads exactly like this morning even when it's two days old.
+const STALE_CHECK_MS = 3 * 60 * 60_000;
+
+function renderChecked(node, when) {
+  if (!when) {
+    node.textContent = 'Highlights haven’t been checked for this week yet.';
+    node.classList.remove('stale');
+    return;
+  }
+  const d = new Date(when);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const stamp = d.toDateString() === new Date().toDateString() ? time
+    : `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
+  node.textContent = `Highlights last checked: ${stamp} (${relativeTime(when)})`;
+  node.classList.toggle('stale', Date.now() - d.getTime() > STALE_CHECK_MS);
 }
 
 let toastTimer = null;
@@ -409,9 +521,7 @@ function renderGames() {
   $('#games-hint').textContent = config.mode === 'watched'
     ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
     : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.';
-  $('#highlights-checked').textContent = data.highlightsCheckedAt
-    ? `Highlights last checked: ${new Date(data.highlightsCheckedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : '';
+  renderChecked($('#highlights-checked'), data.highlightsCheckedAt);
   const list = $('#games-list');
   list.replaceChildren();
   const watched = store.watchedFor(config, config.leagueId, config.week);
@@ -503,9 +613,7 @@ function renderHighlights() {
   }
   sel.value = String(hl.week);
 
-  $('#hl-checked').textContent = hl.checkedAt
-    ? `Highlights last checked: ${new Date(hl.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : '';
+  renderChecked($('#hl-checked'), hl.checkedAt);
 
   const list = $('#hl-list');
   list.replaceChildren();
@@ -583,7 +691,23 @@ async function checkForUpdate() {
 function startUpdateChecks() {
   checkForUpdate();
   setInterval(checkForUpdate, 5 * 60_000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+}
+
+// Coming back to the app (tab refocused, home-screen app resumed) is the
+// moment the on-screen data is most likely to be stale — the 60s recorder
+// tick is throttled or suspended while backgrounded, so nothing has been
+// pulled in the meantime. Re-check both the deployed build and the week's data.
+async function refreshOnResume() {
+  if (document.hidden) return;
+  checkForUpdate();
+  if (!$('#view-highlights').hidden) {
+    if (hl.week != null) await loadHighlightsWeek(hl.week).catch(() => { /* transient */ });
+    return;
+  }
+  if (data && !$('#view-main').hidden) {
+    await refreshServerData();
+    render();
+  }
 }
 
 /* ---------------- drawer ---------------- */
@@ -639,6 +763,12 @@ $('#btn-set-default').onclick = () => {
   flashSaved('Default set');
   renderDefaultHint();
 };
+$('#league-select').onchange = (e) => {
+  const lg = (config.leagues || []).find((l) => l.id === e.target.value);
+  if (!lg || lg.id === config.leagueId) return;
+  closeDrawer();
+  selectLeague(lg);
+};
 $('#week-select').onchange = (e) => { config.week = Number(e.target.value); store.saveConfig(config); loadWeek(); };
 $('#delay-select').onchange = (e) => { config.delayMinutes = Number(e.target.value); store.saveConfig(config); render(); };
 document.querySelectorAll('.mode-switch button').forEach((b) => {
@@ -684,6 +814,7 @@ function bootApp() {
 }
 
 window.addEventListener('popstate', route);
+document.addEventListener('visibilitychange', refreshOnResume);
 route();
 
 startUpdateChecks();

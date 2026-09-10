@@ -31,7 +31,10 @@ export default async function handler(req, res) {
     return res.status(404).json({ error: 'no snapshot data', status: upstream.status });
   }
 
-  res.setHeader('cache-control', 'public, s-maxage=60, stale-while-revalidate=300');
+  // max-age=0 so a foregrounded tab's periodic re-fetch always revalidates —
+  // without it the browser is free to serve a heuristically-cached copy and
+  // never notice a newly-resolved highlight. s-maxage still shields GitHub.
+  res.setHeader('cache-control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
   res.setHeader('content-type', 'application/json');
   return res.status(200).send(await upstream.text());
 }

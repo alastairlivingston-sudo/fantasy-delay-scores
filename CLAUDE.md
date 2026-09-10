@@ -31,8 +31,17 @@ See BUILD_PLAN.md for architecture and phases.
    unlimited free Actions minutes (the Sunday marathon job needs real hours/
    week). Scheduled workflows only run from the default branch (main).
 7. YouTube Data API is free (10k units/day, 100/search); the optional
-   YOUTUBE_API_KEY Actions secret enables direct highlight links.
-8. NEVER test scripts/record-live.js (or record.js) against the real
+   YOUTUBE_API_KEY Actions secret enables direct highlight links. The official
+   upload lands HOURS after the final whistle, so resolution must run on a
+   clock, not in game windows — `.github/workflows/highlights.yml` runs the
+   resolver hourly all season (plus the previous week, for Monday-night games
+   whose Sleeper week has rolled over). Retries back off per game and give up
+   after 8 misses (`shouldSearchAgain` in js/youtube.js) so hourly runs can't
+   burn the quota.
+8. GitHub throttles and silently DROPS frequent scheduled runs on a quiet repo:
+   the recorders' `*/5` crons fire a handful of times a week in practice, not
+   every 5 minutes. Never put time-critical work on a `*/5` cron alone.
+9. NEVER test scripts/record-live.js (or record.js) against the real
    `https://github.com/<owner>/<repo>.git` remote — this environment can carry
    ambient push credentials that make even a deliberately-invalid token
    succeed. Always pass RECORD_LIVE_REMOTE pointing at a local bare repo
