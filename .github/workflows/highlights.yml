@@ -33,9 +33,23 @@ on:
         description: Week to resolve (blank = current)
         required: false
   schedule:
-    # Every hour during the NFL season (Sep-Dec + the January playoffs). The
-    # off-week minute keeps this away from the top-of-hour scheduling crush.
-    - cron: '23 * * 1,9-12 *'
+    # Four candidate triggers an hour during the NFL season (Sep-Dec + the
+    # January playoffs), NOT because we want to run four times an hour — most
+    # of these no-op in seconds — but because GitHub delivers only a fraction
+    # of scheduled runs on a quiet repo and drops the rest silently. Measured
+    # over the first 24h of the hourly version: 5 runs delivered, at gaps of
+    # 2.5-4.6 hours, none at the requested minute. A Thursday-night game that
+    # finished inside one of those gaps was still unresolved the next morning.
+    #
+    # Four independent candidates are dropped independently, so the chance of
+    # getting at least one in a given hour goes up sharply. Off-the-hour
+    # minutes avoid the top-of-hour scheduling crush. This is belt-and-braces
+    # with the app's own staleness check (js/app.js autoCheckIfStale), which
+    # is the part that actually guarantees a fresh look when you open the app.
+    - cron: '7 * * 1,9-12 *'
+    - cron: '22 * * 1,9-12 *'
+    - cron: '37 * * 1,9-12 *'
+    - cron: '52 * * 1,9-12 *'
 
 permissions:
   contents: write

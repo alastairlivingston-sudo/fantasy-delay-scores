@@ -38,9 +38,14 @@ See BUILD_PLAN.md for architecture and phases.
    whose Sleeper week has rolled over). Retries back off per game and give up
    after 8 misses (`shouldSearchAgain` in js/youtube.js) so hourly runs can't
    burn the quota.
-8. GitHub throttles and silently DROPS frequent scheduled runs on a quiet repo:
-   the recorders' `*/5` crons fire a handful of times a week in practice, not
-   every 5 minutes. Never put time-critical work on a `*/5` cron alone.
+8. GitHub throttles and silently DROPS scheduled runs on a quiet repo, and this
+   applies to HOURLY crons too, not just `*/5`. Measured on highlights.yml's
+   first 24h of hourly scheduling: 5 runs delivered, gaps of 2.5-4.6h, none at
+   the requested minute. Never make a user-visible guarantee depend on cron
+   delivery. Current mitigation is threefold: four cron candidates per hour
+   (dropped independently), record.yml's opportunistic resolve step, and — the
+   only reliable one — the app dispatching its own check when it notices stale
+   data (`autoCheckIfStale` in js/app.js).
 9. NEVER test scripts/record-live.js (or record.js) against the real
    `https://github.com/<owner>/<repo>.git` remote — this environment can carry
    ambient push credentials that make even a deliberately-invalid token
@@ -72,6 +77,14 @@ See BUILD_PLAN.md for architecture and phases.
    zero, but only one means "still to play". The distinction is `p.state`, which
    is gated output, so it stays correct (and conservative) in delay mode.
 7. `js/quota.js` is pure too (same node --test rule as gate/project/youtube).
+8. Watched ticks are keyed by SEASON+WEEK, never by league — "I watched
+   SF @ LAR" is a fact about the viewer, so one tick counts in every league.
+   `adoptLegacyWatched` folds in the old `<leagueId>:<week>` sets on load; keep
+   it until it's certain no browser still holds them.
+9. `renderStarters` pairs the two sides by index and either side can be
+   shorter (bye week, odd-sized league, no opponent yet). `playerCell` must
+   tolerate an undefined player — it threw once and took the whole view down
+   with a "Failed to load" alert.
 
 ## Owner context
 Sleeper username `AlastairL` (user_id 735249111976112128). 2025 leagues:

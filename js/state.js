@@ -32,15 +32,42 @@ export function loadConfig() {
 }
 export function saveConfig(config) { write(CONFIG_KEY, config); }
 
-export function watchedFor(config, leagueId, week) {
-  return config.watched[`${leagueId}:${week}`] || {};
+/* --- watched games ---
+ * Keyed by SEASON+WEEK, not by league: "I watched SF @ LAR" is a fact about
+ * you, not about one of your leagues, so ticking it once counts everywhere.
+ * (Season is part of the key because week 1 of 2025 and of 2026 are different
+ * games — the old per-league key had no season in it and would have collided
+ * when browsing a past season.)
+ */
+
+const watchedKey = (season, week) => `${season}:${week}`;
+const legacyWatchedKey = (leagueId, week) => `${leagueId}:${week}`;
+
+export function watchedFor(config, season, week) {
+  return config.watched[watchedKey(season, week)] || {};
 }
-export function setWatched(config, leagueId, week, gameKey, isWatched) {
-  const key = `${leagueId}:${week}`;
+
+export function setWatched(config, season, week, gameKey, isWatched) {
+  const key = watchedKey(season, week);
   const set = { ...(config.watched[key] || {}) };
   if (isWatched) set[gameKey] = true; else delete set[gameKey];
   config.watched[key] = set;
   saveConfig(config);
+}
+
+/**
+ * Fold a pre-existing per-league tick set into the shared season+week one, so
+ * upgrading doesn't silently drop ticks the viewer already made. Idempotent:
+ * the legacy entry is removed once merged. Returns true if anything moved.
+ */
+export function adoptLegacyWatched(config, season, week, leagueId) {
+  const legacy = config.watched[legacyWatchedKey(leagueId, week)];
+  if (!legacy || !Object.keys(legacy).length) return false;
+  const key = watchedKey(season, week);
+  config.watched[key] = { ...legacy, ...(config.watched[key] || {}) };
+  delete config.watched[legacyWatchedKey(leagueId, week)];
+  saveConfig(config);
+  return true;
 }
 
 /* --- manual-refresh allowance (see js/quota.js for the week maths) --- */

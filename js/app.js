@@ -195,6 +195,10 @@ async function loadWeek() {
       myName: nameOf(mySide), oppName: nameOf(oppSide),
     };
 
+    // Ticks made before they became shared across leagues live under a
+    // per-league key; fold them in the first time we load that league+week.
+    store.adoptLegacyWatched(config, season, week, leagueId);
+
     stopRecorder?.();
     let ticks = 0;
     stopRecorder = startRecorder({
@@ -208,6 +212,7 @@ async function loadWeek() {
     });
     render();
     refreshLeagueList();
+    autoCheckIfStale();
   } catch (err) {
     alert(`Failed to load: ${err.message}`);
     showSetup();
@@ -255,7 +260,7 @@ function buildCtx() {
   return {
     mode: config.mode,
     playerGames: data.playerGames,
-    watched: store.watchedFor(config, config.leagueId, config.week),
+    watched: store.watchedFor(config, config.season, config.week),
     gameStates: Object.fromEntries(
       data.games.map((g) => [g.gameKey, { state: g.state, progress: g.progress }])),
     snapshots: mergeSnapshots(
@@ -416,6 +421,14 @@ function renderScorecard(gated) {
 
 function playerCell(p, meta, right) {
   const d = el('div', `p${right ? ' right' : ''}`);
+  // One side can have fewer starters than the other — a bye week, an
+  // odd-sized league, or no opponent assigned for the week yet. Render a blank
+  // cell for the missing slot: reading p.pid here used to throw, which took
+  // the whole view down with a "Failed to load" alert.
+  if (!p) {
+    d.append(el('div', 'n', '—'), el('div', 'g hidden-pts', 'no opponent'));
+    return d;
+  }
   const name = meta?.name || (p.pid === '0' ? 'Empty' : p.pid);
   // "Matthew Stafford" → "M. Stafford" so names fit narrow screens (not DEFs)
   const short = meta?.position === 'DEF' ? name : name.replace(/^(\w)\w+ /, '$1. ');
@@ -541,7 +554,7 @@ function renderGames() {
   renderCheckButtons();
   const list = $('#games-list');
   list.replaceChildren();
-  const watched = store.watchedFor(config, config.leagueId, config.week);
+  const watched = store.watchedFor(config, config.season, config.week);
 
   for (const g of data.games) {
     const isWatched = Boolean(watched[g.gameKey]);
@@ -553,7 +566,7 @@ function renderGames() {
     cb.type = 'checkbox';
     cb.checked = isWatched;
     cb.onchange = () => {
-      store.setWatched(config, config.leagueId, config.week, g.gameKey, cb.checked);
+      store.setWatched(config, config.season, config.week, g.gameKey, cb.checked);
       flashSaved();
       render();
     };
@@ -616,6 +629,7 @@ async function loadHighlightsWeek(week) {
     hl.videos = remote?.videos || {};
     hl.checkedAt = remote?.checkedAt || null;
     renderHighlights();
+    autoCheckIfStale();
   } finally {
     showLoading(false);
   }
@@ -722,11 +736,14 @@ function quotaSuffix() {
   return ` · ${q.remaining} checks left this week`;
 }
 
-async function checkHighlightsNow() {
+async function checkHighlightsNow({ silent = false } = {}) {
   if (checkInFlight) return;
+  // A background check never interrupts with a toast; it either quietly
+  // produces a highlight or quietly doesn't.
+  const say = (msg) => { if (!silent) flashSaved(msg); };
   const spend = spendRefresh(store.loadRefreshQuota(), WEEKLY_REFRESH_LIMIT);
   if (!spend.ok) {
-    flashSaved(`Weekly limit of ${spend.state.limit} checks reached`);
+    say(`Weekly limit of ${spend.state.limit} checks reached`);
     renderCheckButtons();
     return;
   }
@@ -748,26 +765,68 @@ async function checkHighlightsNow() {
     if (!fresh) {
       // Most likely the `snapshots` concurrency group is held by the Sunday
       // live recorder; the dispatch is queued, not lost.
-      flashSaved('Check queued — results will appear shortly');
+      say('Check queued — results will appear shortly');
       return;
     }
     applyHighlights(fresh, onHighlightsView);
     const added = Object.keys(fresh.videos || {}).length;
-    flashSaved(added ? `Checked — ${added} highlight${added === 1 ? '' : 's'} available` : 'Checked — none up yet');
+    // A background check that actually turned something up is worth saying.
+    if (!silent || added) {
+      flashSaved(added
+        ? `Checked — ${added} highlight${added === 1 ? '' : 's'} available`
+        : 'Checked — none up yet');
+    }
   } catch (err) {
     if (err.code === 'not-configured') {
       checkUnavailable = true;
-      flashSaved('Manual checks aren’t set up on the server');
+      say('Manual checks aren’t set up on the server');
     } else if (err.code === 'rate-limited') {
-      flashSaved('Weekly check limit reached');
+      say('Weekly check limit reached');
     } else {
-      flashSaved('Could not start a check');
+      say('Could not start a check');
     }
   } finally {
     checkInFlight = false;
     renderCheckButtons();
     if (onHighlightsView) renderHighlights(); else if (data) render();
   }
+}
+
+/* ---------------- automatic staleness check ---------------- */
+// GitHub does not deliver scheduled workflows reliably on a quiet repo: the
+// hourly resolver cron landed 5 times in 24 hours, at gaps of 2.5-4.6 hours
+// (CLAUDE.md fact 8 — it turns out to apply to hourly crons, not just */5).
+// A Thursday-night game that ends inside one of those gaps still reads
+// "No highlight yet" the next morning, which is the bug this closes.
+//
+// So the app stops relying on the cron alone. Opening it is itself a reliable
+// trigger, and now dispatches a check when — and only when — one would
+// actually help: all four conditions must hold, so a routine open costs
+// nothing and a stale morning open costs one check.
+const AUTO_CHECK_STALE_MS = 15 * 60_000;
+let lastAutoCheckAt = 0;
+
+function finishedWithoutHighlight(games, videos) {
+  return (games || []).some((g) => g.state === 'post' && !videos?.[g.gameKey]);
+}
+
+async function autoCheckIfStale() {
+  if (checkInFlight || checkUnavailable) return;
+  if (Date.now() - lastAutoCheckAt < AUTO_CHECK_STALE_MS) return;
+  if (quotaState(store.loadRefreshQuota(), WEEKLY_REFRESH_LIMIT).exhausted) return;
+
+  const onHighlightsView = !$('#view-highlights').hidden;
+  const games = onHighlightsView ? hl.games : data?.games;
+  const videos = onHighlightsView ? hl.videos : data?.highlights;
+  const checkedAt = (onHighlightsView ? hl.checkedAt : data?.highlightsCheckedAt) || 0;
+
+  // Nothing to find, or the server looked recently enough that a fresh run
+  // would just hit the resolver's per-game backoff and do nothing anyway.
+  if (!finishedWithoutHighlight(games, videos)) return;
+  if (Date.now() - checkedAt < AUTO_CHECK_STALE_MS) return;
+
+  lastAutoCheckAt = Date.now();
+  await checkHighlightsNow({ silent: true });
 }
 
 async function pollForCheck(season, week, before) {
@@ -834,11 +893,13 @@ async function refreshOnResume() {
   checkForUpdate();
   if (!$('#view-highlights').hidden) {
     if (hl.week != null) await loadHighlightsWeek(hl.week).catch(() => { /* transient */ });
+    autoCheckIfStale();
     return;
   }
   if (data && !$('#view-main').hidden) {
     await refreshServerData();
     render();
+    autoCheckIfStale();
   }
 }
 
