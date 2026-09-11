@@ -8,6 +8,7 @@ import { scoreProjection, winProbability } from './project.js';
 import { buildFeed } from './newsflash.js';
 import { startRecorder } from './recorder.js';
 import { browseSeasonWeek, chooseDefaultWeek, weekOptions } from './weeks.js';
+import { quotaState, spendRefresh, resetsAt, WEEKLY_REFRESH_LIMIT } from './quota.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -427,6 +428,22 @@ function playerCell(p, meta, right) {
   return d;
 }
 
+// A starter's points cell. "0.0" and "yet to play" are both zero but mean
+// opposite things when you're scanning a roster, so a player whose game hasn't
+// kicked off reads "—" instead. Once the game is live, 0.0 is a real 0.0.
+// (In delay mode "pre" is the state as of your delayed snapshot, so this stays
+// spoiler-safe: it can only ever under-report how far along a player is.)
+function pointsText(p) {
+  if (!p) return '';
+  if (!p.visible) return '••';
+  return p.state === 'pre' ? '—' : p.points.toFixed(1);
+}
+
+function pointsClass(p) {
+  if (!p?.visible) return 'hidden-pts';
+  return p.state === 'pre' ? 'to-play' : 'mine';
+}
+
 function renderStarters(gated) {
   const wrap = $('#starters');
   wrap.replaceChildren();
@@ -437,10 +454,9 @@ function renderStarters(gated) {
     const row = el('div', 'row');
     row.append(playerCell(mine, data.playerMeta[mine?.pid], false));
     const pts = el('div', 'pts');
-    const fmt = (p) => (p ? (p.visible ? p.points.toFixed(1) : '••') : '');
-    pts.append(el('span', mine?.visible ? 'mine' : 'hidden-pts', fmt(mine)),
+    pts.append(el('span', pointsClass(mine), pointsText(mine)),
       el('span', 'hidden-pts', ' · '),
-      el('span', theirs?.visible ? 'mine' : 'hidden-pts', fmt(theirs)));
+      el('span', pointsClass(theirs), pointsText(theirs)));
     const slot = el('div', 'slot', data.slots[i] || 'FLX');
     row.prepend(slot);
     row.append(pts, playerCell(theirs, data.playerMeta[theirs?.pid], true));
@@ -463,7 +479,7 @@ const STALE_CHECK_MS = 3 * 60 * 60_000;
 
 function renderChecked(node, when) {
   if (!when) {
-    node.textContent = 'Highlights haven’t been checked for this week yet.';
+    node.textContent = `Highlights haven’t been checked for this week yet.${quotaSuffix()}`;
     node.classList.remove('stale');
     return;
   }
@@ -471,7 +487,7 @@ function renderChecked(node, when) {
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const stamp = d.toDateString() === new Date().toDateString() ? time
     : `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
-  node.textContent = `Highlights last checked: ${stamp} (${relativeTime(when)})`;
+  node.textContent = `Highlights last checked: ${stamp} (${relativeTime(when)})${quotaSuffix()}`;
   node.classList.toggle('stale', Date.now() - d.getTime() > STALE_CHECK_MS);
 }
 
@@ -522,6 +538,7 @@ function renderGames() {
     ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
     : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.';
   renderChecked($('#highlights-checked'), data.highlightsCheckedAt);
+  renderCheckButtons();
   const list = $('#games-list');
   list.replaceChildren();
   const watched = store.watchedFor(config, config.leagueId, config.week);
@@ -614,6 +631,7 @@ function renderHighlights() {
   sel.value = String(hl.week);
 
   renderChecked($('#hl-checked'), hl.checkedAt);
+  renderCheckButtons();
 
   const list = $('#hl-list');
   list.replaceChildren();
@@ -664,6 +682,114 @@ function renderNews(ctx) {
   }
 }
 
+/* ---------------- manual highlight check ---------------- */
+// The hourly resolver is the normal path; this is the "I don't want to wait an
+// hour" button. It asks /api/refresh to dispatch the workflow, then polls the
+// week's highlight file until its `checkedAt` moves — the workflow takes ~20s,
+// so there is nothing to render synchronously.
+
+const CHECK_POLL_MS = 4000;
+const CHECK_TIMEOUT_MS = 90_000;
+const CHECK_BUTTONS = ['#btn-check-highlights', '#btn-hl-check'];
+
+let checkInFlight = false;
+let checkUnavailable = false; // server said the token isn't configured
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function renderCheckButtons() {
+  const q = quotaState(store.loadRefreshQuota(), WEEKLY_REFRESH_LIMIT);
+  for (const sel of CHECK_BUTTONS) {
+    const btn = $(sel);
+    if (!btn) continue;
+    btn.hidden = checkUnavailable;
+    btn.disabled = checkInFlight || q.exhausted;
+    btn.textContent = checkInFlight ? 'Checking…' : 'Check now';
+    btn.title = q.exhausted
+      ? `Weekly limit of ${q.limit} checks reached — resets ${resetsAt().toLocaleDateString([], { weekday: 'long' })}.`
+      : `${q.remaining} of ${q.limit} checks left this week`;
+  }
+}
+
+// Only shown once you've actually spent something, so the common case stays
+// uncluttered — but the number is always one tap away in the button's tooltip.
+function quotaSuffix() {
+  const q = quotaState(store.loadRefreshQuota(), WEEKLY_REFRESH_LIMIT);
+  if (checkUnavailable || q.used === 0) return '';
+  if (q.exhausted) {
+    return ` · no checks left until ${resetsAt().toLocaleDateString([], { weekday: 'long' })}`;
+  }
+  return ` · ${q.remaining} checks left this week`;
+}
+
+async function checkHighlightsNow() {
+  if (checkInFlight) return;
+  const spend = spendRefresh(store.loadRefreshQuota(), WEEKLY_REFRESH_LIMIT);
+  if (!spend.ok) {
+    flashSaved(`Weekly limit of ${spend.state.limit} checks reached`);
+    renderCheckButtons();
+    return;
+  }
+
+  const onHighlightsView = !$('#view-highlights').hidden;
+  const season = onHighlightsView ? hl.season : config.season;
+  const week = onHighlightsView ? hl.week : config.week;
+  const before = (onHighlightsView ? hl.checkedAt : data?.highlightsCheckedAt) || 0;
+
+  checkInFlight = true;
+  renderCheckButtons();
+  try {
+    await api.requestHighlightCheck();
+    // Charged only once the server accepts it, so a refusal is free.
+    store.saveRefreshQuota(spend.stored);
+    renderCheckButtons();
+
+    const fresh = await pollForCheck(season, week, before);
+    if (!fresh) {
+      // Most likely the `snapshots` concurrency group is held by the Sunday
+      // live recorder; the dispatch is queued, not lost.
+      flashSaved('Check queued — results will appear shortly');
+      return;
+    }
+    applyHighlights(fresh, onHighlightsView);
+    const added = Object.keys(fresh.videos || {}).length;
+    flashSaved(added ? `Checked — ${added} highlight${added === 1 ? '' : 's'} available` : 'Checked — none up yet');
+  } catch (err) {
+    if (err.code === 'not-configured') {
+      checkUnavailable = true;
+      flashSaved('Manual checks aren’t set up on the server');
+    } else if (err.code === 'rate-limited') {
+      flashSaved('Weekly check limit reached');
+    } else {
+      flashSaved('Could not start a check');
+    }
+  } finally {
+    checkInFlight = false;
+    renderCheckButtons();
+    if (onHighlightsView) renderHighlights(); else if (data) render();
+  }
+}
+
+async function pollForCheck(season, week, before) {
+  const deadline = Date.now() + CHECK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(CHECK_POLL_MS);
+    const body = await api.getRemoteHighlights(season, week, { fresh: true });
+    if (body && (body.checkedAt || 0) > before) return body;
+  }
+  return null;
+}
+
+function applyHighlights(body, onHighlightsView) {
+  if (onHighlightsView) {
+    hl.videos = body.videos || {};
+    hl.checkedAt = body.checkedAt || null;
+  } else if (data) {
+    data.highlights = body.videos || {};
+    data.highlightsCheckedAt = body.checkedAt || null;
+  }
+}
+
 /* ---------------- update check ---------------- */
 // Detect when a newer build has been deployed and offer a one-tap refresh, so
 // nobody has to clear their cache to update. /api/version returns the live
@@ -691,6 +817,12 @@ async function checkForUpdate() {
 function startUpdateChecks() {
   checkForUpdate();
   setInterval(checkForUpdate, 5 * 60_000);
+  // Hide "Check now" up front where the server can't dispatch one, rather than
+  // letting the first tap be the thing that discovers it.
+  api.getCheckCapability().then((cap) => {
+    checkUnavailable = !cap?.configured;
+    renderCheckButtons();
+  });
 }
 
 // Coming back to the app (tab refocused, home-screen app resumed) is the
@@ -742,6 +874,7 @@ function route() {
 $('#btn-connect').onclick = () => connect();
 $('#username').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
 $('#btn-menu').onclick = openDrawer;
+for (const sel of CHECK_BUTTONS) $(sel).onclick = checkHighlightsNow;
 $('#btn-refresh').onclick = () => location.reload();
 document.querySelectorAll('#drawer [data-close]').forEach((elm) => { elm.onclick = closeDrawer; });
 $('#btn-settings').onclick = () => { closeDrawer(); showSetup(); };

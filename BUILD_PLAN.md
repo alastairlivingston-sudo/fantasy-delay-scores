@@ -126,7 +126,9 @@ js/
   project.js          PURE: expected finals + win probability
   youtube.js          PURE: spoiler-safe highlight link builder
   weeks.js            PURE: week selection for the league-free highlights view
+  quota.js            PURE: weekly allowance for manual highlight checks
   app.js              UI controller / rendering
+api/                  Vercel functions (snapshots proxy, version, refresh)
 tests/                node:test unit tests for the pure modules
 scripts/smoke.js      live-API contract check (shapes still match)
 ```
@@ -212,6 +214,29 @@ Player→game mapping comes from the projections payload (every player carries
     marathon loop (every ~10 ticks), because that job holds the `snapshots`
     concurrency group for its whole 11-hour window and would otherwise block
     the hourly workflow exactly when the uploads land.
+  - **Manual highlight check.** A "Check now" button beside the "last checked"
+    line (both the league Games tab and the standalone /highlights view) posts
+    to `api/refresh.js`, which dispatches highlights.yml via the Actions API;
+    the app then polls the week's highlight file until `checkedAt` moves and
+    re-renders. It exists because the hourly schedule is the right *routine*
+    cadence but a bad *waiting* one — after a game you've just watched, an hour
+    is a long time to stare at "No highlight yet".
+
+    Needs `GH_DISPATCH_TOKEN` in the Vercel env (fine-grained PAT, this repo
+    only, Actions: read and write). Without it `GET /api/refresh` reports
+    `configured: false` and the app hides the button, so the feature is
+    self-disabling rather than broken.
+
+    Two limits, doing different jobs. The per-browser allowance (500/week,
+    `js/quota.js`, ISO weeks so the reset needs no scheduled cleanup) is what
+    the *user* sees — it counts down in the UI and disables the button. Because
+    it lives in localStorage it is an allowance, not a control. The endpoint is
+    unauthenticated (the app has no accounts), so the actual ceiling is a global
+    weekly cap enforced server-side, counted from GitHub's own
+    `workflow_dispatch` run history — a rate limiter with no database behind it.
+    Neither limit is really about YouTube quota: the resolver's per-game backoff
+    already makes a repeat check inside the backoff window cost zero searches.
+
   - **PWA install.** Manifest + iOS meta tags so the app pins to the home
     screen full-screen.
 

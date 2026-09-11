@@ -94,9 +94,13 @@ export async function getScoreboard(season, week) {
  * Both return null when unavailable (local dev, recorder not enabled yet,
  * different week) — callers must treat that as "no remote data".
  */
-async function getRemoteFile(file, season, week) {
+async function getRemoteFile(file, season, week, { fresh = false } = {}) {
   try {
-    const res = await fetch(`/api/snapshots?file=${file}`);
+    // /api/snapshots is edge-cached for 60s, which is right for routine polling
+    // but wrong when we're waiting on a check we just triggered — a cache-key
+    // buster is the only way past a shared cache we don't control.
+    const bust = fresh ? `&_=${Date.now()}` : '';
+    const res = await fetch(`/api/snapshots?file=${file}${bust}`, fresh ? { cache: 'no-store' } : undefined);
     if (!res.ok) return null;
     const body = await res.json();
     return body.season === season && body.week === week ? body : null;
@@ -104,8 +108,33 @@ async function getRemoteFile(file, season, week) {
 }
 export const getRemoteSnapshots = (leagueId, season, week) =>
   getRemoteFile(`${leagueId}.json`, season, week);
-export const getRemoteHighlights = (season, week) =>
-  getRemoteFile(`highlights-${season}-${week}.json`, season, week);
+export const getRemoteHighlights = (season, week, opts) =>
+  getRemoteFile(`highlights-${season}-${week}.json`, season, week, opts);
+
+/**
+ * Whether the server can dispatch a manual highlight check (it needs a GitHub
+ * token it may not have been given). Null when the endpoint isn't there at all
+ * — local dev, or a host without the function — which reads the same as "no".
+ */
+export async function getCheckCapability() {
+  try {
+    const res = await fetch('/api/refresh', { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+/** Ask the server to run the highlight resolver now. Throws on refusal. */
+export async function requestHighlightCheck() {
+  const res = await fetch('/api/refresh', { method: 'POST', cache: 'no-store' });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(body.message || `Check failed (${res.status})`);
+    err.code = body.error || String(res.status);
+    throw err;
+  }
+  return body;
+}
 
 /** {pid: gameKey} for a set of players, joining their team to the week's games. */
 export function mapPlayersToGames(playerIds, playerMeta, games) {
