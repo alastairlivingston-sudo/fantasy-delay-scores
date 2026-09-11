@@ -46,6 +46,15 @@ See BUILD_PLAN.md for architecture and phases.
    ambient push credentials that make even a deliberately-invalid token
    succeed. Always pass RECORD_LIVE_REMOTE pointing at a local bare repo
    (`git init --bare /tmp/x.git`) for dry runs.
+10. Manual highlight checks: `POST /api/refresh` dispatches highlights.yml on
+    demand. Needs `GH_DISPATCH_TOKEN` in the Vercel env (fine-grained PAT, this
+    repo only, Actions: read+write); `GET /api/refresh` is a side-effect-free
+    probe so the app hides its button when the token is absent. The endpoint is
+    public (no accounts), so the per-browser 500/week allowance in js/quota.js
+    is an allowance, NOT a security control — the real ceiling is the global
+    weekly cap in api/refresh.js, counted from GitHub's own `workflow_dispatch`
+    history (no database). Spam is cheap by design: the per-game backoff means
+    repeat checks inside the backoff window cost zero YouTube quota.
 
 ## Hard rules
 1. Rendering must only read gated data from `js/gate.js`. In watched/delay
@@ -59,6 +68,10 @@ See BUILD_PLAN.md for architecture and phases.
    window/document/fetch) so `node --test` covers them.
 5. Sleeper team codes are canonical; normalise ESPN codes (WSH→WAS, LA→LAR)
    at the api.js boundary.
+6. A starter whose game hasn't kicked off renders "—", never "0.0" — both are
+   zero, but only one means "still to play". The distinction is `p.state`, which
+   is gated output, so it stays correct (and conservative) in delay mode.
+7. `js/quota.js` is pure too (same node --test rule as gate/project/youtube).
 
 ## Owner context
 Sleeper username `AlastairL` (user_id 735249111976112128). 2025 leagues:
@@ -70,3 +83,5 @@ Off-season default: browse previous season so the app is testable year-round.
 - `npm test` — unit tests for pure modules
 - `npm run smoke` — live API contract check
 - `FORCE_SEASON=2025 FORCE_WEEK=17 node scripts/record.js <dir>` — recorder dry run
+- `HIGHLIGHT_WEEKS_BACK=0 YOUTUBE_API_KEY=… node scripts/resolve-highlights.js <dir>`
+  — resolver dry run (no key ⇒ clean no-op)

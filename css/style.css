@@ -142,12 +142,26 @@ button.secondary { background: var(--card2); text-align: left; }
 .row .pts { font-variant-numeric: tabular-nums; font-weight: 700; text-align: center; font-size: .9rem; }
 .row .pts .mine { color: var(--text); }
 .row .pts .hidden-pts, .g.hidden-pts { color: var(--muted); }
+/* Yet to play: a dash rather than a 0.0, so a roster scan separates "hasn't
+   started" from "played and scored nothing". */
+.row .pts .to-play { color: var(--muted); }
 
 /* ---------- Games ---------- */
 .hint { color: var(--muted); font-size: .85rem; margin: 6px 2px 10px; }
 /* The recorder hasn't looked for highlights in hours — say so visibly rather
    than leaving a stale timestamp that reads like a fresh one. */
 .hint.stale { color: var(--warn); }
+/* "last checked" line + its manual re-check button, on one row. The button
+   stays a fixed size so the line can grow (it gains a quota suffix) without
+   pushing it off-screen on a narrow phone. */
+.checked-row { display: flex; align-items: baseline; gap: 10px; }
+.checked-row .hint { flex: 1; min-width: 0; }
+button.check-now {
+  flex-shrink: 0; min-height: 34px; padding: 5px 12px;
+  font-size: .8rem; font-weight: 600;
+  background: var(--card2); color: var(--text);
+}
+button.check-now:disabled { opacity: .45; cursor: default; }
 .games-list { display: flex; flex-direction: column; gap: 6px; }
 .game {
   background: var(--card); border-radius: 10px; padding: 8px 12px;

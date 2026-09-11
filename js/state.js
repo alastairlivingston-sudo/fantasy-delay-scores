@@ -43,6 +43,13 @@ export function setWatched(config, leagueId, week, gameKey, isWatched) {
   saveConfig(config);
 }
 
+/* --- manual-refresh allowance (see js/quota.js for the week maths) --- */
+
+const REFRESH_KEY = 'sss:refresh-quota';
+
+export function loadRefreshQuota() { return read(REFRESH_KEY, null); }
+export function saveRefreshQuota(quota) { write(REFRESH_KEY, quota); }
+
 const snapKey = (leagueId, week) => `sss:snap:${leagueId}:${week}`;
 
 export function loadSnapshots(leagueId, week) {

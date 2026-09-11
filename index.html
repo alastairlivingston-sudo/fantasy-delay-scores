@@ -82,7 +82,10 @@
 
       <div id="tab-games" class="tab" hidden>
         <p class="hint" id="games-hint"></p>
-        <p class="hint" id="highlights-checked"></p>
+        <div class="checked-row">
+          <p class="hint" id="highlights-checked"></p>
+          <button id="btn-check-highlights" class="check-now">Check now</button>
+        </div>
         <div id="games-list" class="games-list"></div>
       </div>
 
@@ -114,7 +117,10 @@
       </div>
 
       <p class="hint">Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.</p>
-      <p class="hint" id="hl-checked"></p>
+      <div class="checked-row">
+        <p class="hint" id="hl-checked"></p>
+        <button id="btn-hl-check" class="check-now">Check now</button>
+      </div>
       <p id="hl-error" class="error" hidden></p>
       <div id="hl-list" class="games-list"></div>
     </section>
