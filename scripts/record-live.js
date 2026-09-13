@@ -54,6 +54,10 @@ const token = process.env.GITHUB_TOKEN;
 // remote — this script has ambient push access in some environments, so
 // testing against the real URL is not a safe default.
 const remoteUrl = process.env.RECORD_LIVE_REMOTE || `https://github.com/${repo}.git`;
+// Chain onto the ref this leg is running from, not a hardcoded 'main': a run
+// dispatched from a branch must continue on that branch, or leg 2 silently
+// runs different code from leg 1.
+const ref = process.env.RECORD_LIVE_REF || process.env.GITHUB_REF_NAME || 'main';
 
 function git(cmd) { return execSync(`git ${cmd}`, { cwd: dataDir, stdio: 'pipe' }).toString(); }
 
@@ -133,7 +137,7 @@ function dispatchNextLeg(next) {
       accept: 'application/vnd.github+json',
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ ref: 'main', inputs: { leg: String(next) } }),
+    body: JSON.stringify({ ref, inputs: { leg: String(next) } }),
   });
 }
 
