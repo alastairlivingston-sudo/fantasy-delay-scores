@@ -19,11 +19,11 @@ See BUILD_PLAN.md for architecture and phases.
    is public + CORS OK; gives status/period/clock per game.
 5. Sleeper has no historical stat timeline, and no free public API offers one.
    Delay mode replays self-recorded snapshots from three sources, merged by
-   `js/snapshots.js`: the ~5-min GitHub Actions recorder (record.yml, most
-   game windows), the 60-second Sunday-evening recorder (record-live.yml,
-   17:00-04:00 UK wall-clock — see BUILD_PLAN.md for why it needs two chained
-   jobs and how js/schedule.js keeps it DST-correct without date maintenance),
-   and the client's own 60s localStorage recording while a tab is open. All
+   `js/snapshots.js`: the 60-second marathon recorder (record-live.yml — runs
+   whenever `js/schedule.js` says there are live games, chaining legs to cover
+   windows longer than a job's 6h cap, and resolving highlights on the same
+   loop), the ~5-min recorder (record.yml) as a backstop, and the client's own
+   60s localStorage recording while a tab is open. All
    snapshot data lives on the single-commit `snapshots` branch, cleared on
    week rollover, served to the app by the `api/snapshots.js` Vercel function.
 6. Repo should be public: browsers can't read raw.githubusercontent.com from a
@@ -42,10 +42,15 @@ See BUILD_PLAN.md for architecture and phases.
    applies to HOURLY crons too, not just `*/5`. Measured on highlights.yml's
    first 24h of hourly scheduling: 5 runs delivered, gaps of 2.5-4.6h, none at
    the requested minute. Never make a user-visible guarantee depend on cron
-   delivery. Current mitigation is threefold: four cron candidates per hour
-   (dropped independently), record.yml's opportunistic resolve step, and — the
-   only reliable one — the app dispatching its own check when it notices stale
-   data (`autoCheckIfStale` in js/app.js).
+   delivery — NOTHING may depend on a run firing at a particular time. This
+   killed the live recorder silently for weeks: its leg-1 gate demanded the UK
+   hour be exactly 17, and on 2026-09-13 the deliveries arrived at 19:34 and
+   20:16 UK, so both no-opped and the whole Sunday slate went unrecorded.
+   The pattern that works is a long-running job that decides for itself: a
+   delivery at any time either finds the window open (from the week's games,
+   not the clock) or sleeps until it opens, then loops internally at 60s.
+   Cron then only has to land *once*, not on time. Other mitigations: many
+   cron candidates, and the app's own `autoCheckIfStale`.
 9. NEVER test scripts/record-live.js (or record.js) against the real
    `https://github.com/<owner>/<repo>.git` remote — this environment can carry
    ambient push credentials that make even a deliberately-invalid token
