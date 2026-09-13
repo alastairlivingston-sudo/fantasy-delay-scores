@@ -1,18 +1,23 @@
-# Live-window recorder: 17:00 -> 04:00 UK wall-clock every Sunday night, at
-# ~60-second resolution (much finer than record.yml's ~5-minute cadence,
-# which still covers all other game windows).
+# Live recorder: 60-second Sleeper snapshots (delay mode) plus highlight
+# resolution on the same loop, running for as long as there are live games.
 #
-# Why two cron triggers at 16:00 and 17:00 UTC: the window is defined in UK
-# WALL-CLOCK time, which is BST (UTC+1) for most of Sept/October and GMT
-# (UTC+0) from late October on. Rather than hardcode the yearly DST-change
-# date, both candidate start times fire every week; the job checks the real
-# Europe/London hour (js/schedule.js) and the wrong one exits immediately as
-# a no-op — so this self-corrects across the DST boundary with no maintenance.
+# This is the only path that delivers a real per-minute cadence. Cron cannot:
+# GitHub drops most scheduled runs on a quiet repo and delivers the rest hours
+# late. The previous design took the two candidate triggers (16:00/17:00 UTC)
+# and no-opped unless the local hour was exactly 17 — so on 2026-09-13 the
+# deliveries at 19:34 and 20:16 UK were both rejected and the entire Sunday
+# slate went unrecorded.
 #
-# Why two "legs": a GitHub-hosted job caps out at 6 hours, but the window is
-# ~11 hours. Leg 1 runs for a safe ~5h20m, then dispatches leg 2 (via the
-# Actions API) to cover the rest — see scripts/record-live.js for the loop
-# and chaining logic.
+# Now the job decides for itself from the week's actual games
+# (js/schedule.js): a late delivery finds the window already open and starts
+# recording, and an early one sleeps until it opens instead of exiting. That
+# makes the *timing* of a delivery irrelevant — only that one lands at all —
+# which is why the schedule below is simply a spread of candidates through the
+# day rather than an attempt to hit kickoff. A candidate with no window in
+# reach exits in seconds.
+#
+# Runs longer than a job's 6-hour cap are covered by chaining: each leg stops
+# at ~5h20m and dispatches the next (see scripts/record-live.js).
 
 name: Record live-window snapshots (60s)
 
@@ -20,15 +25,14 @@ on:
   workflow_dispatch:
     inputs:
       leg:
-        description: 'Leg to run (1 = full gated start, 2 = continuation, no gate)'
+        description: 'Leg number (1 to start; higher values are continuations)'
         default: '1'
   schedule:
-    - cron: '0 16 * * SUN' # candidate start: 17:00 local during BST
-    - cron: '0 17 * * SUN' # candidate start: 17:00 local during GMT
+    - cron: '*/30 * * 1,9-12 *' # candidates all season; each no-ops off-window
 
 permissions:
   contents: write
-  actions: write # leg 1 dispatches leg 2 via the Actions API
+  actions: write # each leg dispatches the next via the Actions API
 
 concurrency:
   group: snapshots
@@ -37,7 +41,8 @@ concurrency:
 jobs:
   record:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # ~5h50m; scripts/record-live.js self-limits leg 1 to ~5h20m
+    timeout-minutes: 350 # ~5h50m; record-live.js self-limits each leg to ~5h20m,
+                         # counted from process start so a pre-window wait is included
     steps:
       - uses: actions/checkout@v4
 
@@ -49,9 +54,8 @@ jobs:
         env:
           SLEEPER_USERNAME: AlastairL
           GITHUB_TOKEN: ${{ github.token }}
-          # The loop resolves highlight links every ~10 ticks. This job holds
-          # the `snapshots` concurrency group for the whole 11-hour window, so
-          # without the key here nothing can resolve a Sunday-night game until
-          # Monday morning.
+          # The loop resolves highlight links every other tick. This job holds
+          # the `snapshots` concurrency group for the whole window, so without
+          # the key here nothing could resolve a game until the job ended.
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: node scripts/record-live.js /tmp/snapshot-data "${{ github.event.inputs.leg || '1' }}"
