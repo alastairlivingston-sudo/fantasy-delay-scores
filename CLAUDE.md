@@ -35,9 +35,14 @@ See BUILD_PLAN.md for architecture and phases.
    upload lands HOURS after the final whistle, so resolution must run on a
    clock, not in game windows — `.github/workflows/highlights.yml` runs the
    resolver hourly all season (plus the previous week, for Monday-night games
-   whose Sleeper week has rolled over). Retries back off per game and give up
-   after 8 misses (`shouldSearchAgain` in js/youtube.js) so hourly runs can't
-   burn the quota.
+   whose Sleeper week has rolled over). THE QUOTA IS THE BINDING CONSTRAINT,
+   not the schedule: 100 units per search means ~100 searches/day in total,
+   i.e. only ~7-8 per game on a 13-game Sunday. Checking every unresolved game
+   on every 2-minute recorder tick would spend the whole day in 15 minutes. So
+   `shouldSearchAgain` (js/youtube.js) gives each game its own backoff and
+   stops after 8. Retuning means MOVING those 8, never adding more — the curve
+   is placed against observed upload delays (15 min to ~4 h after the whistle),
+   with 6 of the 8 inside that band. Only a bigger quota buys more.
 8. GitHub throttles and silently DROPS scheduled runs on a quiet repo, and this
    applies to HOURLY crons too, not just `*/5`. Measured on highlights.yml's
    first 24h of hourly scheduling: 5 runs delivered, gaps of 2.5-4.6h, none at

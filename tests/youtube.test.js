@@ -58,15 +58,52 @@ test('a game that just went final is searched immediately', () => {
   assert.equal(shouldSearchAgain({ attempts: 0, lastTriedAt: 0 }, now), true);
 });
 
-test('retries back off, so an hourly resolver cannot burn the YouTube quota', () => {
+// Properties, not magic numbers: the curve gets retuned as we learn when NFL
+// uploads actually land, and these are the things that must stay true of any
+// curve. Pinning the exact minutes just makes retuning noisy.
+const min = (n) => n * 60_000;
+
+/** Minutes after the final whistle at which each search would fire. */
+function attemptSchedule(now) {
+  const times = [];
+  let t = 0;
+  for (let a = 0; a < MAX_HIGHLIGHT_ATTEMPTS; a++) {
+    // Smallest wait that lets attempt `a` through.
+    let w = 0;
+    while (!shouldSearchAgain({ attempts: a, lastTriedAt: now - min(w) }, now)) w++;
+    t += w;
+    times.push(t);
+  }
+  return times;
+}
+
+test('the wait after each miss never shrinks', () => {
   const now = Date.UTC(2025, 8, 21, 20, 0);
-  const min = (n) => n * 60_000;
-  // One fruitless search: the next is 30 minutes out, not on the next hourly run.
-  assert.equal(shouldSearchAgain({ attempts: 1, lastTriedAt: now - min(29) }, now), false);
-  assert.equal(shouldSearchAgain({ attempts: 1, lastTriedAt: now - min(31) }, now), true);
-  // And the wait keeps growing with each miss.
-  assert.equal(shouldSearchAgain({ attempts: 3, lastTriedAt: now - min(90) }, now), false);
-  assert.equal(shouldSearchAgain({ attempts: 3, lastTriedAt: now - min(121) }, now), true);
+  const times = attemptSchedule(now);
+  const waits = times.map((t, i) => t - (times[i - 1] ?? 0));
+  for (let i = 2; i < waits.length; i++) {
+    assert.ok(waits[i] >= waits[i - 1],
+      `wait ${i} (${waits[i]}m) must not be shorter than the one before (${waits[i - 1]}m)`);
+  }
+});
+
+test('searches concentrate in the window where uploads actually appear', () => {
+  // Observed this season: 15 min (SF@LAR) to ~4 h (NE@SEA) after the whistle.
+  const times = attemptSchedule(Date.UTC(2025, 8, 21, 20, 0));
+  const inBand = times.filter((t) => t <= 240);
+  assert.ok(inBand.length >= 6,
+    `expected most attempts inside the first 4h, got ${inBand.length} of ${times.length}: ${times}`);
+  const worst = Math.max(...times.filter((t) => t <= 240)
+    .map((t, i, a) => t - (a[i - 1] ?? 0)));
+  assert.ok(worst <= 90, `worst wait inside the 0-4h band should be <= 90 min, got ${worst}`);
+  assert.ok(times[1] <= 20, `a highlight up within 20 min should be caught quickly, got ${times[1]}`);
+});
+
+test('the whole curve stays inside the free YouTube quota', () => {
+  // 10k units/day, 100 per search => ~100 searches/day across a 13-game slate.
+  const AFFORDABLE_PER_GAME = Math.floor(10_000 / 100 / 13);
+  assert.ok(MAX_HIGHLIGHT_ATTEMPTS <= AFFORDABLE_PER_GAME + 1,
+    `${MAX_HIGHLIGHT_ATTEMPTS} searches/game x 13 games would exceed the daily quota`);
 });
 
 test('a game with no official upload is eventually left alone', () => {
