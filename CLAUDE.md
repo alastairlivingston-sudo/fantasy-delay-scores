@@ -56,12 +56,18 @@ See BUILD_PLAN.md for architecture and phases.
    not the clock) or sleeps until it opens, then loops internally at 60s.
    Cron then only has to land *once*, not on time. Other mitigations: many
    cron candidates, and the app's own `autoCheckIfStale`.
-9. NEVER test scripts/record-live.js (or record.js) against the real
+9. The `snapshots` branch lives in the SAME repo Vercel watches, so every push
+   to it is a deploy trigger. The 60s recorder burned Vercel's free 100
+   deploys/day in under two hours and blocked production deploys with it.
+   `vercel.json` sets `git.deploymentEnabled: {"snapshots": false}`, and
+   record-live.js batches pushes (samples at 60s, pushes every ~3 min, flushes
+   on exit). Before raising any push rate, count what else reacts to a push.
+10. NEVER test scripts/record-live.js (or record.js) against the real
    `https://github.com/<owner>/<repo>.git` remote — this environment can carry
    ambient push credentials that make even a deliberately-invalid token
    succeed. Always pass RECORD_LIVE_REMOTE pointing at a local bare repo
    (`git init --bare /tmp/x.git`) for dry runs.
-10. Manual highlight checks: `POST /api/refresh` dispatches highlights.yml on
+11. Manual highlight checks: `POST /api/refresh` dispatches highlights.yml on
     demand. Needs `GH_DISPATCH_TOKEN` in the Vercel env (fine-grained PAT, this
     repo only, Actions: read+write); `GET /api/refresh` is a side-effect-free
     probe so the app hides its button when the token is absent. The endpoint is
