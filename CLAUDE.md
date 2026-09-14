@@ -35,9 +35,14 @@ See BUILD_PLAN.md for architecture and phases.
    upload lands HOURS after the final whistle, so resolution must run on a
    clock, not in game windows — `.github/workflows/highlights.yml` runs the
    resolver hourly all season (plus the previous week, for Monday-night games
-   whose Sleeper week has rolled over). Retries back off per game and give up
-   after 8 misses (`shouldSearchAgain` in js/youtube.js) so hourly runs can't
-   burn the quota.
+   whose Sleeper week has rolled over). THE QUOTA IS THE BINDING CONSTRAINT,
+   not the schedule: 100 units per search means ~100 searches/day in total,
+   i.e. only ~7-8 per game on a 13-game Sunday. Checking every unresolved game
+   on every 2-minute recorder tick would spend the whole day in 15 minutes. So
+   `shouldSearchAgain` (js/youtube.js) gives each game its own backoff and
+   stops after 8. Retuning means MOVING those 8, never adding more — the curve
+   is placed against observed upload delays (15 min to ~4 h after the whistle),
+   with 6 of the 8 inside that band. Only a bigger quota buys more.
 8. GitHub throttles and silently DROPS scheduled runs on a quiet repo, and this
    applies to HOURLY crons too, not just `*/5`. Measured on highlights.yml's
    first 24h of hourly scheduling: 5 runs delivered, gaps of 2.5-4.6h, none at
@@ -51,12 +56,18 @@ See BUILD_PLAN.md for architecture and phases.
    not the clock) or sleeps until it opens, then loops internally at 60s.
    Cron then only has to land *once*, not on time. Other mitigations: many
    cron candidates, and the app's own `autoCheckIfStale`.
-9. NEVER test scripts/record-live.js (or record.js) against the real
+9. The `snapshots` branch lives in the SAME repo Vercel watches, so every push
+   to it is a deploy trigger. The 60s recorder burned Vercel's free 100
+   deploys/day in under two hours and blocked production deploys with it.
+   `vercel.json` sets `git.deploymentEnabled: {"snapshots": false}`, and
+   record-live.js batches pushes (samples at 60s, pushes every ~3 min, flushes
+   on exit). Before raising any push rate, count what else reacts to a push.
+10. NEVER test scripts/record-live.js (or record.js) against the real
    `https://github.com/<owner>/<repo>.git` remote — this environment can carry
    ambient push credentials that make even a deliberately-invalid token
    succeed. Always pass RECORD_LIVE_REMOTE pointing at a local bare repo
    (`git init --bare /tmp/x.git`) for dry runs.
-10. Manual highlight checks: `POST /api/refresh` dispatches highlights.yml on
+11. Manual highlight checks: `POST /api/refresh` dispatches highlights.yml on
     demand. Needs `GH_DISPATCH_TOKEN` in the Vercel env (fine-grained PAT, this
     repo only, Actions: read+write); `GET /api/refresh` is a side-effect-free
     probe so the app hides its button when the token is absent. The endpoint is

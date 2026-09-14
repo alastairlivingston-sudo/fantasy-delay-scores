@@ -47,6 +47,13 @@ const MAX_WAIT_MS = Number(process.env.RECORD_LIVE_MAX_WAIT_MS) || 4 * 60 * 60_0
 // Stop the chain running away if a schedule ever looks permanently open.
 const MAX_LEG = Number(process.env.RECORD_LIVE_MAX_LEG) || 8;
 const MAX_CONSECUTIVE_FAILURES = Number(process.env.RECORD_LIVE_MAX_FAILURES) || 5;
+// Sample every 60s, but PUSH on a slower interval. Every push to the snapshots
+// branch is a repo event other tooling reacts to: Vercel builds a preview per
+// push, and at one a minute that alone burned its whole free daily deployment
+// quota (100/day) in under two hours and blocked production deploys with it.
+// Batching costs nothing visible — the commit still carries every 60s sample,
+// and the app only polls every 5 minutes anyway.
+const PUSH_MIN_INTERVAL_MS = Number(process.env.RECORD_LIVE_PUSH_EVERY_MS) || 3 * 60_000;
 
 const username = process.env.SLEEPER_USERNAME || 'AlastairL';
 const repo = process.env.GITHUB_REPOSITORY;
@@ -71,19 +78,29 @@ function ensureRepo() {
 }
 
 let committedOnce = false;
-function commitAndPush(message) {
+let pendingPush = false;
+let lastPushAt = 0;
+
+/**
+ * Commit this tick's data locally, and push if a push is due. `force` flushes
+ * whatever is pending regardless of the interval — used when the loop exits so
+ * the last few minutes of a window are never stranded on the runner.
+ */
+function commitAndMaybePush(message, { force = false } = {}) {
   git('add -A');
   try {
     git(`commit -q ${committedOnce ? '--amend' : ''} -m ${JSON.stringify(message)}`);
+    committedOnce = true;
+    pendingPush = true;
   } catch (err) {
     // Only "nothing to commit" is benign — anything else (bad identity, repo
     // corruption, ...) must surface, or a real failure could go unnoticed for
     // the rest of an unattended multi-hour run.
     const out = `${err.stdout || ''}${err.stderr || ''}`;
     if (!out.includes('nothing to commit')) throw err;
-    return;
   }
-  committedOnce = true;
+  if (!pendingPush) return;
+  if (!force && Date.now() - lastPushAt < PUSH_MIN_INTERVAL_MS) return;
   // Basic, not Bearer: git-over-HTTPS rejects a bearer token and then falls
   // back to prompting, which on a runner fails with the decidedly unhelpful
   // "could not read Username for 'https://github.com'". This is what silently
@@ -94,6 +111,8 @@ function commitAndPush(message) {
     '-c', `http.extraHeader=Authorization: Basic ${basic}`,
     'push', '-qf', remoteUrl, 'HEAD:snapshots',
   ], { cwd: dataDir, stdio: 'pipe' });
+  lastPushAt = Date.now();
+  pendingPush = false;
 }
 
 async function recordOnce() {
@@ -215,7 +234,7 @@ for (let i = 0; i < HARD_ITERATION_CAP; i++) {
     // Push on a resolve too, not just an append: once every game is final the
     // scores stop changing, so `appended` goes false for the rest of the
     // window — which is exactly when the highlight uploads land.
-    if (appended || resolved) commitAndPush(`snapshot ${new Date().toISOString()}`);
+    if (appended || resolved) commitAndMaybePush(`snapshot ${new Date().toISOString()}`);
     ticks++;
 
     // Re-evaluate from this tick's own scoreboard — no extra ESPN call.
@@ -236,5 +255,13 @@ for (let i = 0; i < HARD_ITERATION_CAP; i++) {
   }
   const elapsed = Date.now() - tickStart;
   if (elapsed < TICK_MS) await sleep(TICK_MS - elapsed);
+}
+// Flush anything the interval was still holding, so ending a window (or
+// handing over to the next leg) never strands the last few minutes on disk.
+try {
+  commitAndMaybePush(`snapshot ${new Date().toISOString()}`, { force: true });
+} catch (err) {
+  console.error('final push failed:', err.message);
+  process.exit(1);
 }
 console.log(`leg ${leg} done after ${ticks} ticks`);

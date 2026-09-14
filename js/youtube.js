@@ -34,14 +34,25 @@ export function isFullHighlightVideo({ title, durationIso }) {
 }
 
 /* ---------------- retry policy ---------------- */
-// The official upload usually appears within a few hours of the final whistle,
-// so the resolver has to keep checking after a game ends — but a YouTube search
-// costs 100 of the free tier's 10k daily units, and the resolver now runs
-// hourly all season. Retries therefore back off and eventually give up, which
-// bounds a whole week's worst case (every game unresolved) to well under quota.
+// The recorder loop CHECKS every couple of minutes, but a search is not free:
+// 100 of the YouTube free tier's 10k daily units. Searching every unresolved
+// game every check would spend the whole day's quota in about 15 minutes on a
+// 13-game Sunday, so each game gets its own backoff and eventually gives up.
+// The real ceiling is ~100 searches a day across all games — roughly 7 or 8
+// per game on a full slate — and no scheduling choice can raise it. Only a
+// bigger quota can.
+//
+// Given a fixed budget of 8 searches, what matters is WHERE they land.
+// Observed upload delays after the final whistle: 15 min (SF@LAR), ~1 h
+// (TB@CIN), ~4 h (NE@SEA). The first curve here put only 4 of its 8 attempts
+// inside that 0-4h band and left a 4-hour hole in the middle of it, then spent
+// the other 4 out at 15h, 27h and 51h where nothing was ever going to appear.
+// This curve puts 6 of the 8 in the band and cuts the worst-case wait there
+// from 240 to 90 minutes, for exactly the same quota.
 //
 // Index = attempts already made; value = minutes to wait since the last try.
-const RETRY_WAIT_MINUTES = [0, 30, 60, 120, 240, 480, 720, 1440];
+// Cumulative: 0, 15m, 45m, 1h30, 2h30, 4h, 6h, 10h.
+const RETRY_WAIT_MINUTES = [0, 15, 30, 45, 60, 90, 120, 240];
 
 /** After this many fruitless searches a game is left alone (no official upload). */
 export const MAX_HIGHLIGHT_ATTEMPTS = RETRY_WAIT_MINUTES.length;
