@@ -19,7 +19,7 @@
 // Usage: node scripts/record-live.js <dataDir> [leg]   (leg: 1, 2, 3, …)
 // Env: SLEEPER_USERNAME, GITHUB_TOKEN, GITHUB_REPOSITORY (all set by the workflow)
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,6 +46,7 @@ const HIGHLIGHT_EVERY = Number(process.env.RECORD_LIVE_HIGHLIGHT_EVERY) || 2;
 const MAX_WAIT_MS = Number(process.env.RECORD_LIVE_MAX_WAIT_MS) || 4 * 60 * 60_000;
 // Stop the chain running away if a schedule ever looks permanently open.
 const MAX_LEG = Number(process.env.RECORD_LIVE_MAX_LEG) || 8;
+const MAX_CONSECUTIVE_FAILURES = Number(process.env.RECORD_LIVE_MAX_FAILURES) || 5;
 
 const username = process.env.SLEEPER_USERNAME || 'AlastairL';
 const repo = process.env.GITHUB_REPOSITORY;
@@ -83,9 +84,16 @@ function commitAndPush(message) {
     return;
   }
   committedOnce = true;
-  execSync(
-    `git -c http.extraHeader="AUTHORIZATION: bearer ${token}" push -qf ${remoteUrl} HEAD:snapshots`,
-    { cwd: dataDir, stdio: 'pipe' });
+  // Basic, not Bearer: git-over-HTTPS rejects a bearer token and then falls
+  // back to prompting, which on a runner fails with the decidedly unhelpful
+  // "could not read Username for 'https://github.com'". This is what silently
+  // broke every push for a whole slate. execFileSync (no shell) keeps the
+  // credential out of a command string entirely.
+  const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+  execFileSync('git', [
+    '-c', `http.extraHeader=Authorization: Basic ${basic}`,
+    'push', '-qf', remoteUrl, 'HEAD:snapshots',
+  ], { cwd: dataDir, stdio: 'pipe' });
 }
 
 async function recordOnce() {
@@ -180,6 +188,7 @@ const start = Date.now();
 }
 
 let ticks = 0;
+let consecutiveFailures = 0;
 for (let i = 0; i < HARD_ITERATION_CAP; i++) {
   // Chain before the 6-hour job cap, whatever leg we are on: a full Sunday
   // (first warm-up to the last post-game tail) is far longer than one job.
@@ -214,8 +223,16 @@ for (let i = 0; i < HARD_ITERATION_CAP; i++) {
       console.log('window closed');
       break;
     }
+    consecutiveFailures = 0;
   } catch (err) {
+    // A transient API blip is normal; a persistent failure is not. Pushes were
+    // failing on every single tick here while the job still looked healthy and
+    // "in progress" for hours — so give up loudly instead.
     console.warn('tick failed, continuing:', err.message);
+    if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      console.error(`${consecutiveFailures} consecutive failed ticks — aborting`);
+      process.exit(1);
+    }
   }
   const elapsed = Date.now() - tickStart;
   if (elapsed < TICK_MS) await sleep(TICK_MS - elapsed);
