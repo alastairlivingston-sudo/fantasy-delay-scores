@@ -59,9 +59,20 @@ See BUILD_PLAN.md for architecture and phases.
 9. The `snapshots` branch lives in the SAME repo Vercel watches, so every push
    to it is a deploy trigger. The 60s recorder burned Vercel's free 100
    deploys/day in under two hours and blocked production deploys with it.
-   `vercel.json` sets `git.deploymentEnabled: {"snapshots": false}`, and
-   record-live.js batches pushes (samples at 60s, pushes every ~3 min, flushes
-   on exit). Before raising any push rate, count what else reacts to a push.
+   Vercel reads `git.deploymentEnabled` from the vercel.json IN THE COMMIT
+   BEING PUSHED, so main's copy never applied to this branch at all: snapshots
+   is an orphan branch whose tree was only `data/`. Measured 2026-09-21, a week
+   after that setting landed on main: all 20 most recent deployments came from
+   `snapshots`, one every ~4 minutes, and the cap blocked production with them.
+   The branch now carries its own opt-out — `scripts/snapshots-branch-config.js`
+   writes a root vercel.json with `deploymentEnabled: false`, called from all
+   four paths that build the branch (record.yml, highlights.yml,
+   backfill-highlights.yml, record-live.js). It must be rewritten on every run:
+   those jobs restore only `data/` from the remote, so anything else in the tree
+   is lost when the branch is rebuilt. record-live.js also batches pushes
+   (samples at 60s, pushes every ~3 min, flushes on exit) — that alone was never
+   enough, since even every ~3 min fills 100/day in about five hours. Before
+   raising any push rate, count what else reacts to a push.
 10. NEVER test scripts/record-live.js (or record.js) against the real
    `https://github.com/<owner>/<repo>.git` remote — this environment can carry
    ambient push credentials that make even a deliberately-invalid token

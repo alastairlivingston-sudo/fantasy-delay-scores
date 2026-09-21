@@ -67,6 +67,14 @@ jobs:
               node scripts/resolve-highlights.js /tmp/snapshot-data/data
           done
 
+      # The branch must carry its own Vercel opt-out: Vercel reads
+      # git.deploymentEnabled from the commit being pushed, and this orphan
+      # branch has no vercel.json of its own unless we write one. Without it
+      # every push here is a deployment, and the recorder's push rate alone
+      # exhausts the free daily cap and blocks production deploys.
+      - name: Opt the snapshots branch out of Vercel deploys
+        run: node scripts/snapshots-branch-config.js /tmp/snapshot-data
+
       - name: Push snapshots branch (single commit, preserves existing data)
         run: |
           cd /tmp/snapshot-data

@@ -27,6 +27,7 @@ import { getNflState, getUser, getLeagues, getMatchups, getScoreboard, getStats 
 import { shouldAppend, isRollover } from '../js/snapshots.js';
 import { pickStats } from '../js/newsflash.js';
 import { shouldRecord, nextWindowStart, recordingEndsAt } from '../js/schedule.js';
+import { writeSnapshotsBranchConfig } from './snapshots-branch-config.js';
 
 const dataDir = process.argv[2];
 const leg = process.argv[3] || '1';
@@ -53,6 +54,9 @@ const MAX_CONSECUTIVE_FAILURES = Number(process.env.RECORD_LIVE_MAX_FAILURES) ||
 // quota (100/day) in under two hours and blocked production deploys with it.
 // Batching costs nothing visible — the commit still carries every 60s sample,
 // and the app only polls every 5 minutes anyway.
+// Batching alone was never enough, though — even every ~3 minutes fills 100/day
+// in about five hours. The branch itself now opts out of deployments
+// (snapshots-branch-config.js); this interval is the second line of defence.
 const PUSH_MIN_INTERVAL_MS = Number(process.env.RECORD_LIVE_PUSH_EVERY_MS) || 3 * 60_000;
 
 const username = process.env.SLEEPER_USERNAME || 'AlastairL';
@@ -173,6 +177,10 @@ const clock = (t) => new Date(t).toISOString().replace('T', ' ').slice(0, 16) + 
 
 await mkdir(join(dataDir, 'data'), { recursive: true });
 ensureRepo();
+// Written before the first commit, and on every run: the fetch below only
+// restores `data/`, so this file would otherwise vanish from the tree the
+// moment a run rebuilt the branch without it.
+await writeSnapshotsBranchConfig(dataDir);
 try {
   execSync(`git fetch -q ${remoteUrl} snapshots`, { cwd: dataDir, stdio: 'pipe' });
   execSync(`git checkout -q FETCH_HEAD -- data`, { cwd: dataDir, stdio: 'pipe' });
