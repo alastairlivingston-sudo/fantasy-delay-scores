@@ -33,6 +33,123 @@ export function isFullHighlightVideo({ title, durationIso }) {
     && !SCORE_LIKE.test(title || '');
 }
 
+/* ---------------- right game, right year ---------------- */
+// "Full-length official highlights" is not the same as "THIS game's". The
+// search is a text query against a channel with a decade of near-identical
+// titles, so the top hit for "Panthers vs Falcons Week 2 2026" is quite happily
+// last September's meeting. Observed in the 2026 week-2 file: CAR@ATL resolved
+// to a video published 2025-09-21, JAX@DEN to one from 2025-12-22, and CLE@TB
+// to the exact video already stored for CIN@HOU.
+//
+// Two independent guards, because either alone has a hole: the upload's own
+// publish date must sit in the hours after THIS kickoff (catches the wrong
+// year, and a rematch weeks later), and the title must name both teams and
+// agree about week and season (catches the wrong game on the right day, which
+// no date check can see).
+
+/** No upload exists before the game is played; nothing plausible lands later. */
+const PUBLISH_MIN_HOURS = 2;
+const PUBLISH_MAX_DAYS = 4;
+
+/**
+ * The window in which a genuine highlight for a kickoff can have been
+ * published, as {from, to} epoch ms. Null when the kickoff is unusable.
+ */
+export function publishWindow(kickoff) {
+  const t = new Date(kickoff ?? NaN).getTime();
+  if (!Number.isFinite(t)) return null;
+  return { from: t + PUBLISH_MIN_HOURS * 3_600_000, to: t + PUBLISH_MAX_DAYS * 86_400_000 };
+}
+
+const WEEK_IN_TITLE = /\bweek\s*(\d{1,2})\b/i;
+const YEAR_IN_TITLE = /\b20\d{2}\b/g;
+
+/**
+ * Why `video` is NOT the highlight for `game`, or null if it checks out.
+ * The string is a reason code for logging — callers should test against null.
+ *
+ * video: {publishedAt, title?}  (title is optional: entries stored before this
+ *        check existed have only an id and a publish date)
+ * game:  {away, home, date (kickoff ISO), week, season}
+ */
+export function highlightMismatch(video, game) {
+  const { publishedAt, title } = video || {};
+  const { away, home, week, season, date } = game || {};
+
+  if (title != null) {
+    const lower = String(title).toLowerCase();
+    for (const code of [away, home]) {
+      const name = teamName(code);
+      if (name && !lower.includes(String(name).toLowerCase())) return `title-missing-${code}`;
+    }
+    const inTitle = WEEK_IN_TITLE.exec(title);
+    if (inTitle && week && Number(inTitle[1]) !== Number(week)) return `title-week-${inTitle[1]}`;
+    // A title year must be the season's own. Playoff uploads for a season can
+    // carry the following calendar year, so that one is allowed too.
+    const years = String(title).match(YEAR_IN_TITLE) || [];
+    if (season && years.length
+      && !years.some((y) => Number(y) === Number(season) || Number(y) === Number(season) + 1)) {
+      return `title-season-${years.join('/')}`;
+    }
+  }
+
+  const range = publishWindow(date);
+  const at = new Date(publishedAt ?? NaN).getTime();
+  // Unverifiable beats "probably fine": a link we can't date is exactly the
+  // shape of the bug, and dropping it only costs one re-search.
+  if (!range || !Number.isFinite(at)) return 'undateable';
+  if (at < range.from) return 'published-before-this-game';
+  if (at > range.to) return 'published-too-long-after';
+  return null;
+}
+
+/** True if `video` is a plausible highlight for `game`. */
+export function isHighlightForGame(video, game) {
+  return Boolean(video) && highlightMismatch(video, game) === null;
+}
+
+/**
+ * Filter a week's stored {gameKey: video} map down to the entries that still
+ * check out against the week's games, and say what was dropped.
+ *
+ * Entries whose gameKey isn't in `games` are kept untouched — they can't be
+ * checked and they can't be rendered either. One video id claimed by two games
+ * means at least one is wrong, and nothing in the stored data says which, so
+ * both go: a re-search is cheap next to a link to someone else's game.
+ *
+ * Returns {videos, dropped: [{gameKey, id, reason}]}.
+ */
+export function pruneHighlights(videos, games, { season, week } = {}) {
+  const byKey = new Map((games || []).map((g) => [g.gameKey, g]));
+  const kept = {};
+  const dropped = [];
+
+  for (const [gameKey, video] of Object.entries(videos || {})) {
+    const game = byKey.get(gameKey);
+    if (!game) { kept[gameKey] = video; continue; }
+    const reason = highlightMismatch(video, { ...game, season, week });
+    if (reason) dropped.push({ gameKey, id: video?.id, reason });
+    else kept[gameKey] = video;
+  }
+
+  const claims = new Map();
+  for (const [gameKey, video] of Object.entries(kept)) {
+    if (!byKey.has(gameKey)) continue; // unverifiable entries don't vote
+    const id = video?.id;
+    if (!id) continue;
+    claims.set(id, [...(claims.get(id) || []), gameKey]);
+  }
+  for (const [id, keys] of claims) {
+    if (keys.length < 2) continue;
+    for (const gameKey of keys) {
+      delete kept[gameKey];
+      dropped.push({ gameKey, id, reason: `also-claimed-by-${keys.filter((k) => k !== gameKey).join('/')}` });
+    }
+  }
+
+  return { videos: kept, dropped };
+}
+
 /* ---------------- retry policy ---------------- */
 // The recorder loop CHECKS every couple of minutes, but a search is not free:
 // 100 of the YouTube free tier's 10k daily units. Searching every unresolved

@@ -9,6 +9,8 @@ import { buildFeed } from './newsflash.js';
 import { startRecorder } from './recorder.js';
 import { browseSeasonWeek, chooseDefaultWeek, weekOptions } from './weeks.js';
 import { quotaState, spendRefresh, resetsAt, WEEKLY_REFRESH_LIMIT } from './quota.js';
+import { isHighlightForGame } from './youtube.js';
+import { buildMatchups, leagueStarters } from './matchups.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -19,9 +21,12 @@ const el = (tag, cls, text) => {
 };
 
 const config = store.loadConfig();
-let data = null; // {league, rosters, users, matchups, playerMeta, games, mySide, oppSide, projections, playerGames, slots, myName, oppName}
+let data = null; // {league, games, matchups, playerMeta, playerGames, projections, slots, ...}
 let stopRecorder = null;
 let activeTab = 'matchup';
+// Which of the league's matchups the matchup tab is showing. 0 is always your
+// own (buildMatchups sorts it first), so a league or week change resets to it.
+let matchupIndex = 0;
 let nflState = null; // Sleeper's /state/nfl, cached so a league switch can re-derive the week
 
 /* ---------------- setup flow ---------------- */
@@ -61,6 +66,9 @@ async function fetchLeagues(userId, nfl) {
 // (they share the NFL calendar) and is re-derived only when the season changes.
 function selectLeague(lg, { pickMode = false } = {}) {
   config.leagueId = lg.id;
+  // Repaint the header now rather than after loadWeek's round trip, so the tap
+  // visibly does something instead of sitting under a "Loading…" overlay.
+  $('#league-name').textContent = lg.name;
   if (lg.season !== config.season || !config.week) {
     config.season = lg.season;
     config.week = nflState ? weekForSeason(nflState, lg.season) : 1;
@@ -115,7 +123,7 @@ async function refreshLeagueList() {
     if (!leagues.length) return;
     config.leagues = leagues;
     store.saveConfig(config);
-    renderLeagueSelect();
+    renderLeagueLists();
   } catch { /* keep the cached list */ }
 }
 
@@ -171,28 +179,30 @@ async function loadWeek() {
 
     const myRoster = rosters.find((r) => r.owner_id === config.userId) || rosters[0];
     const mySide = matchups.find((m) => m.roster_id === myRoster.roster_id);
-    const oppSide = matchups.find(
-      (m) => m.matchup_id === mySide?.matchup_id && m.roster_id !== mySide.roster_id);
     const nameOf = (side) => {
       const r = rosters.find((x) => x.roster_id === side?.roster_id);
       const u = users.find((x) => x.user_id === r?.owner_id);
       return u?.metadata?.team_name || u?.display_name || `Roster ${side?.roster_id}`;
     };
 
-    const allStarters = [...(mySide?.starters || []), ...(oppSide?.starters || [])];
+    // Every matchup in the league, yours first — the arrows flick through
+    // these. Projections and player→game mapping now have to cover the whole
+    // league, since any pair can end up on screen.
+    const pairs = buildMatchups(matchups, mySide, nameOf);
+    const allStarters = leagueStarters(pairs);
     const playerGames = api.mapPlayersToGames(allStarters, playerMeta, games);
     const projections = {};
     for (const pid of allStarters) {
       projections[pid] = scoreProjection(playerMeta[pid]?.stats, league.scoring_settings);
     }
 
+    matchupIndex = 0;
     data = {
-      league, games, mySide, oppSide, playerMeta, playerGames, projections,
+      league, games, matchups: pairs, playerMeta, playerGames, projections,
       remoteSnapshots: remote?.snapshots || [],
       highlights: highlights?.videos || {},
       highlightsCheckedAt: highlights?.checkedAt || null,
       slots: (league.roster_positions || []).filter((p) => p !== 'BN'),
-      myName: nameOf(mySide), oppName: nameOf(oppSide),
     };
 
     // Ticks made before they became shared across leagues live under a
@@ -246,12 +256,21 @@ function refreshServerData() {
     if (games?.length) {
       data.games = [...games].sort((a, b) => new Date(a.date) - new Date(b.date));
       data.playerGames = api.mapPlayersToGames(
-        [...(data.mySide?.starters || []), ...(data.oppSide?.starters || [])],
-        data.playerMeta, data.games);
+        leagueStarters(data.matchups), data.playerMeta, data.games);
     }
   })().catch(() => { /* transient network; the next tick retries */ })
     .finally(() => { refreshing = null; });
   return refreshing;
+}
+
+/* ---------------- the league's matchups ---------------- */
+
+/** The matchup currently on screen, with the index kept inside the list. */
+function currentMatchup() {
+  const list = data?.matchups || [];
+  if (!list.length) return null;
+  matchupIndex = Math.min(Math.max(matchupIndex, 0), list.length - 1);
+  return list[matchupIndex];
 }
 
 /* ---------------- rendering ---------------- */
@@ -278,7 +297,7 @@ function render() {
   $('#view-highlights').hidden = true;
   $('#view-main').hidden = false;
   $('#league-name').textContent = data.league.name;
-  renderLeagueSelect();
+  renderLeagueLists();
   renderWeekSelect();
   renderModeSwitch();
   renderModeIndicator();
@@ -286,18 +305,20 @@ function render() {
   renderBottomNav();
 
   const ctx = buildCtx();
-  const gated = gateMatchup(data.mySide || {}, data.oppSide || {}, ctx);
+  const view = currentMatchup();
+  const gated = gateMatchup(view?.a || {}, view?.b || {}, ctx);
   // A league/week with no matchup for you (e.g. a season that hasn't started,
   // or a pre-draft league) has no roster to show — say so instead of rendering
   // an empty "Roster undefined · 0.00" card.
-  const hasMatchup = Boolean(data.mySide || data.oppSide);
+  const hasMatchup = Boolean(view?.a || view?.b);
+  renderMatchupNav();
   $('#no-matchup').hidden = hasMatchup;
   $('#scorecard').hidden = !hasMatchup;
   $('#winprob').hidden = !hasMatchup;
   $('#starters').hidden = !hasMatchup;
   if (hasMatchup) {
     renderNotice(gated.me.notice);
-    renderScorecard(gated);
+    renderScorecard(gated, view);
     renderStarters(gated);
   } else {
     $('#notice').hidden = true;
@@ -324,25 +345,84 @@ function renderBottomNav() {
     b.classList.toggle('active', b.dataset.tab === activeTab));
 }
 
-function renderLeagueSelect() {
-  const sel = $('#league-select');
+// Arrows across the league's other matchups, Sleeper-style. Everything they
+// show is gated by the same ctx as your own matchup, so another team's players
+// are hidden or delayed on exactly the terms yours are — flicking through the
+// league can't show you a score your mode wouldn't.
+function renderMatchupNav() {
+  const list = data?.matchups || [];
+  const nav = $('#matchup-nav');
+  // A one-matchup league (or a week with no pairings) has nothing to flick to.
+  nav.hidden = list.length < 2;
+  if (nav.hidden) return;
+  const view = currentMatchup();
+  const label = $('#matchup-label');
+  label.textContent = view?.mine
+    ? 'Your matchup'
+    : `${view?.aName || '—'} vs ${view?.bName || '—'}`;
+  // Tapping the label is the way back to your own matchup from anywhere.
+  label.classList.toggle('is-mine', Boolean(view?.mine));
+  $('#matchup-count').textContent = `${matchupIndex + 1} / ${list.length}`;
+}
+
+function stepMatchup(delta) {
+  const n = data?.matchups?.length || 0;
+  if (n < 2) return;
+  // Wraps: on a phone, running into a dead end at either end is worse than
+  // looping round.
+  matchupIndex = (matchupIndex + delta + n) % n;
+  render();
+}
+
+function goToMyMatchup() {
+  const i = (data?.matchups || []).findIndex((m) => m.mine);
+  if (i < 0 || i === matchupIndex) return;
+  matchupIndex = i;
+  render();
+}
+
+// Switching league used to mean: tap ☰, find the League row, open a native
+// <select>, spin its wheel, confirm, close the drawer. Five interactions and a
+// menu you had to know about. It's now a tap on the league name in the header
+// and a tap on the league — the same list also replaces the drawer's dropdown,
+// so whichever way you go at it, a league is one tap once you can see it.
+const LEAGUE_LISTS = ['#league-sheet-list', '#league-drawer-list'];
+
+function leagueOptions() {
   const known = config.leagues || [];
   // The active league always appears, even when the cached list is stale or
-  // predates it — otherwise the dropdown would name a league you aren't in.
-  const options = known.some((l) => l.id === config.leagueId) ? known : [
+  // predates it — otherwise the list would omit the league you're looking at.
+  return known.some((l) => l.id === config.leagueId) ? known : [
     { id: config.leagueId, season: config.season, name: data?.league?.name || 'Current league' },
     ...known,
   ];
-  const sig = options.map((l) => `${l.id}@${l.season}`).join('|');
-  if (sel.dataset.sig !== sig) {
-    sel.replaceChildren();
-    for (const l of options) sel.append(new Option(`${l.name} · ${l.season}`, l.id));
-    sel.dataset.sig = sig;
+}
+
+function renderLeagueLists() {
+  const options = leagueOptions();
+  for (const sel of LEAGUE_LISTS) {
+    const box = $(sel);
+    if (!box) continue;
+    box.replaceChildren();
+    for (const lg of options) {
+      const b = el('button');
+      b.append(el('span', null, lg.name),
+        el('span', 'meta', lg.teams ? `${lg.teams} teams · ${lg.season}` : String(lg.season)));
+      b.classList.toggle('active', lg.id === config.leagueId);
+      b.onclick = () => {
+        closeLeagueSheet();
+        closeDrawer();
+        if (lg.id !== config.leagueId) selectLeague(lg);
+      };
+      box.append(b);
+    }
   }
-  sel.value = String(config.leagueId);
   $('#league-hint').textContent = options.length > 1
     ? 'Switch any time — your week and spoiler mode carry over.'
     : 'The only league on this Sleeper account.';
+  // With one league the header name is just a title, so don't dress it as a
+  // control that does nothing.
+  $('#btn-league').classList.toggle('single', options.length < 2);
 }
 
 function renderWeekSelect() {
@@ -392,7 +472,7 @@ function renderNotice(notice) {
   }
 }
 
-function renderScorecard(gated) {
+function renderScorecard(gated, view) {
   const { winProb, myExpected, oppExpected } =
     winProbability(gated.me.players, gated.opp.players, data.projections);
 
@@ -400,10 +480,11 @@ function renderScorecard(gated) {
   card.replaceChildren();
   const side = (name, total) => {
     const d = el('div', 'team');
-    d.append(el('div', 'team-name', name), el('div', 'team-pts', total.toFixed(2)));
+    // A bye week (or a league with no opponent assigned yet) has no second team.
+    d.append(el('div', 'team-name', name || '—'), el('div', 'team-pts', total.toFixed(2)));
     return d;
   };
-  card.append(side(data.myName, gated.me.total), el('div', 'vs', 'vs'), side(data.oppName, gated.opp.total));
+  card.append(side(view?.aName, gated.me.total), el('div', 'vs', 'vs'), side(view?.bName, gated.opp.total));
 
   const wp = $('#winprob');
   wp.replaceChildren();
@@ -412,8 +493,12 @@ function renderScorecard(gated) {
   fill.style.width = `${Math.round(winProb * 100)}%`;
   bar.append(fill);
   const label = el('div', 'label');
+  // The bar is always the LEFT team's chance. On your own matchup that's you,
+  // so "Win chance" is unambiguous; on another matchup it has to say whose.
+  const chance = `${Math.round(winProb * 100)}%`;
   label.append(
-    el('span', null, `Win chance ${Math.round(winProb * 100)}%`),
+    el('span', 'wp-chance', view?.mine === false
+      ? `${view.aName} ${chance}` : `Win chance ${chance}`),
     el('span', null, `proj ${myExpected.toFixed(1)} – ${oppExpected.toFixed(1)}`),
   );
   wp.append(bar, label);
@@ -514,17 +599,17 @@ function flashSaved(msg = 'Saved') {
   toastTimer = setTimeout(() => { t.classList.remove('show'); t.hidden = true; }, 1200);
 }
 
-// A game card's spoiler-safe info line: kickoff time (never a score) · matchup,
-// plus a tiny live/final status tag so you can tell what's on without a
-// scoreline. Shared by the league Games tab and the standalone Highlights view.
+// A game card's spoiler-safe info line: kickoff time (never a score) · matchup.
+// Deliberately NO live/final status: "still Live" an hour after it should have
+// ended is itself a spoiler — it says overtime. Whether a highlight is ready is
+// the only progress signal the card gives, and that one is harmless.
+// Shared by the league Games tab and the standalone Highlights view.
 function gameCardBase(g) {
   const card = el('div', 'game');
   const info = el('div', 'info');
   const kickoff = new Date(g.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  const tag = g.state === 'post' ? 'Final' : g.state === 'in' ? 'Live' : '';
   const line = el('div', 'matchup-name');
   line.append(el('span', 'kick', kickoff), el('span', null, ` · ${g.away} @ ${g.home}`));
-  if (tag) line.append(el('span', `tag ${g.state}`, tag));
   info.append(line);
   card.append(info);
   return card;
@@ -533,8 +618,17 @@ function gameCardBase(g) {
 // The highlight affordance for a game. Only a resolver-confirmed, full-length
 // official upload is ever linked (never a live search — its results page can
 // itself show a score); otherwise a non-clickable placeholder.
-function highlightEl(g, video) {
-  if (video) {
+//
+// The stored link is re-checked here against this game's kickoff and teams:
+// links resolved before those guards existed can point at last season's meeting
+// of the same two teams, and the app should stop showing them immediately
+// rather than wait for the next resolver run to clean the file up.
+//
+// The placeholder says the same thing for every game whatever its state — a
+// label that changed at the final whistle would leak exactly what the missing
+// status tag was hiding.
+function highlightEl(g, video, ctx) {
+  if (isHighlightForGame(video, { ...g, season: ctx?.season, week: ctx?.week })) {
     const a = el('a', 'yt', '▶ Highlights');
     a.title = `Posted ${relativeTime(video.publishedAt)}`;
     a.href = `https://www.youtube.com/watch?v=${video.id}`;
@@ -542,14 +636,13 @@ function highlightEl(g, video) {
     a.rel = 'noopener noreferrer';
     return a;
   }
-  const label = g.state === 'post' ? 'No highlight yet' : '—';
-  return el('span', 'yt pending', label);
+  return el('span', 'yt pending', 'No highlight yet');
 }
 
 function renderGames() {
   $('#games-hint').textContent = config.mode === 'watched'
-    ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
-    : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.';
+    ? 'Tick a game once you’ve watched it — its players then count in your matchup. Games never show live or final status; only whether the highlights are up.'
+    : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score. Games never show live or final status: the only thing that changes here is whether the highlights are up.';
   renderChecked($('#highlights-checked'), data.highlightsCheckedAt);
   renderCheckButtons();
   const list = $('#games-list');
@@ -572,7 +665,7 @@ function renderGames() {
     };
     toggle.append(cb, el('span', 'status', 'seen'));
     card.append(toggle);
-    card.append(highlightEl(g, data.highlights[g.gameKey]));
+    card.append(highlightEl(g, data.highlights[g.gameKey], config));
     list.append(card);
   }
 }
@@ -655,7 +748,7 @@ function renderHighlights() {
   }
   for (const g of hl.games) {
     const card = gameCardBase(g);
-    card.append(highlightEl(g, hl.videos[g.gameKey]));
+    card.append(highlightEl(g, hl.videos[g.gameKey], hl));
     list.append(card);
   }
 }
@@ -670,9 +763,11 @@ function renderNews(ctx) {
   // Only snapshots old enough for the delay are ever seen (spoiler rule 1);
   // the gating decision lives in gate.js, we just format the result here.
   const snaps = visibleSnapshots(ctx);
-  const myStarters = data.mySide?.starters || [];
-  const oppStarters = data.oppSide?.starters || [];
-  const events = buildFeed(snaps, data.playerMeta, [...myStarters, ...oppStarters]);
+  // The feed follows the matchup on screen, so flicking to another one shows
+  // that matchup's scoring rather than silently staying on yours.
+  const view = currentMatchup();
+  const starters = [...(view?.a?.starters || []), ...(view?.b?.starters || [])];
+  const events = buildFeed(snaps, data.playerMeta, starters);
 
   if (!events.length) {
     feed.append(el('div', 'news-empty',
@@ -806,8 +901,11 @@ async function checkHighlightsNow({ silent = false } = {}) {
 const AUTO_CHECK_STALE_MS = 15 * 60_000;
 let lastAutoCheckAt = 0;
 
-function finishedWithoutHighlight(games, videos) {
-  return (games || []).some((g) => g.state === 'post' && !videos?.[g.gameKey]);
+// A stored link that fails validation counts as missing, not as resolved —
+// otherwise a wrong-year link would suppress the very check that replaces it.
+function finishedWithoutHighlight(games, videos, ctx) {
+  return (games || []).some((g) => g.state === 'post'
+    && !isHighlightForGame(videos?.[g.gameKey], { ...g, season: ctx?.season, week: ctx?.week }));
 }
 
 async function autoCheckIfStale() {
@@ -822,7 +920,7 @@ async function autoCheckIfStale() {
 
   // Nothing to find, or the server looked recently enough that a fresh run
   // would just hit the resolver's per-game backoff and do nothing anyway.
-  if (!finishedWithoutHighlight(games, videos)) return;
+  if (!finishedWithoutHighlight(games, videos, onHighlightsView ? hl : config)) return;
   if (Date.now() - checkedAt < AUTO_CHECK_STALE_MS) return;
 
   lastAutoCheckAt = Date.now();
@@ -907,6 +1005,8 @@ async function refreshOnResume() {
 
 function openDrawer() { $('#drawer').hidden = false; }
 function closeDrawer() { $('#drawer').hidden = true; }
+function openLeagueSheet() { $('#league-sheet').hidden = false; }
+function closeLeagueSheet() { $('#league-sheet').hidden = true; }
 function openHlDrawer() { $('#hl-drawer').hidden = false; }
 function closeHlDrawer() { $('#hl-drawer').hidden = true; }
 
@@ -957,12 +1057,15 @@ $('#btn-set-default').onclick = () => {
   flashSaved('Default set');
   renderDefaultHint();
 };
-$('#league-select').onchange = (e) => {
-  const lg = (config.leagues || []).find((l) => l.id === e.target.value);
-  if (!lg || lg.id === config.leagueId) return;
-  closeDrawer();
-  selectLeague(lg);
-};
+// The header's league name is the fast path to another league.
+$('#btn-league').onclick = () => { if (leagueOptions().length > 1) openLeagueSheet(); };
+document.querySelectorAll('#league-sheet [data-league-close]').forEach((elm) => {
+  elm.onclick = closeLeagueSheet;
+});
+
+$('#btn-matchup-prev').onclick = () => stepMatchup(-1);
+$('#btn-matchup-next').onclick = () => stepMatchup(1);
+$('#matchup-label').onclick = goToMyMatchup;
 $('#week-select').onchange = (e) => { config.week = Number(e.target.value); store.saveConfig(config); loadWeek(); };
 $('#delay-select').onchange = (e) => { config.delayMinutes = Number(e.target.value); store.saveConfig(config); render(); };
 document.querySelectorAll('.mode-switch button').forEach((b) => {

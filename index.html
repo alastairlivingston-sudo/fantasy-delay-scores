@@ -65,7 +65,9 @@
       <header>
         <div class="header-row">
           <button id="btn-menu" class="ghost" aria-label="Menu">☰</button>
-          <span id="league-name" class="league-name"></span>
+          <button id="btn-league" class="league-name" aria-haspopup="dialog" aria-label="Switch league">
+            <span id="league-name"></span><span class="caret" aria-hidden="true">▾</span>
+          </button>
           <button id="btn-refresh" class="ghost" aria-label="Refresh app" title="Refresh">↻</button>
           <span id="mode-indicator" class="mode-indicator"></span>
         </div>
@@ -74,6 +76,12 @@
       <div id="notice" class="notice" hidden></div>
 
       <div id="tab-matchup" class="tab">
+        <div id="matchup-nav" class="matchup-nav" hidden>
+          <button id="btn-matchup-prev" class="ghost" aria-label="Previous matchup">‹</button>
+          <button id="matchup-label" class="matchup-label"></button>
+          <span id="matchup-count" class="matchup-count"></span>
+          <button id="btn-matchup-next" class="ghost" aria-label="Next matchup">›</button>
+        </div>
         <div id="no-matchup" class="empty-state" hidden></div>
         <div id="scorecard" class="scorecard"></div>
         <div id="winprob" class="winprob"></div>
@@ -116,7 +124,7 @@
         <select id="hl-week-select" aria-label="Week"></select>
       </div>
 
-      <p class="hint">Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.</p>
+      <p class="hint">Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score. Games never show live or final status: the only thing that changes here is whether the highlights are up.</p>
       <div class="checked-row">
         <p class="hint" id="hl-checked"></p>
         <button id="btn-hl-check" class="check-now">Check now</button>
@@ -140,6 +148,19 @@
       </aside>
     </div>
 
+    <!-- League picker, opened by tapping the league name in the header -->
+    <div id="league-sheet" class="drawer" hidden>
+      <div class="drawer-scrim" data-league-close></div>
+      <aside class="sheet-panel">
+        <div class="drawer-head">
+          <h2>Switch league</h2>
+          <button class="ghost" data-league-close aria-label="Close">✕</button>
+        </div>
+        <div id="league-sheet-list" class="league-list"></div>
+        <p class="drawer-hint">Your week and spoiler mode carry over.</p>
+      </aside>
+    </div>
+
     <!-- Slide-in menu (mode, week, default, league/user) -->
     <div id="drawer" class="drawer" hidden>
       <div class="drawer-scrim" data-close></div>
@@ -150,8 +171,8 @@
         </div>
 
         <div class="drawer-section">
-          <label class="drawer-label" for="league-select">League</label>
-          <select id="league-select" aria-label="League"></select>
+          <span class="drawer-label">League</span>
+          <div id="league-drawer-list" class="league-list"></div>
           <p id="league-hint" class="drawer-hint"></p>
         </div>
 

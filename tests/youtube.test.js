@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   highlightQuery, highlightSearchUrl, isoDurationMinutes, isFullHighlightVideo,
   shouldSearchAgain, MAX_HIGHLIGHT_ATTEMPTS,
+  highlightMismatch, isHighlightForGame, publishWindow, pruneHighlights,
 } from '../js/youtube.js';
 import { normalizeCode, teamName } from '../js/teams.js';
 
@@ -50,6 +51,108 @@ test('isFullHighlightVideo requires length, "highlights" title, and no score', (
   assert.equal(isFullHighlightVideo({
     title: 'Dolphins vs. Bills Highlights (Final 24-17)', durationIso: 'PT9M12S',
   }), false, 'title leaks a score');
+});
+
+/* ---------------- right game, right year ---------------- */
+// Every case below is taken from the 2026 week-2 highlights file, which had
+// three wrong links in it: two from the previous season, and one video stored
+// for two different games.
+
+const ATL = {
+  gameKey: 'CAR@ATL', away: 'CAR', home: 'ATL',
+  date: '2026-09-20T17:00:00Z', season: 2026, week: 2,
+};
+
+test('a highlight published the season before is rejected', () => {
+  // The real bug: CAR@ATL week 2 2026 resolved to a video from 2025-09-21.
+  assert.equal(
+    highlightMismatch({ publishedAt: '2025-09-21T20:23:11Z' }, ATL),
+    'published-before-this-game');
+  assert.equal(
+    highlightMismatch({ publishedAt: '2025-12-22T00:48:58Z' },
+      { ...ATL, gameKey: 'JAX@DEN', away: 'JAX', home: 'DEN' }),
+    'published-before-this-game');
+});
+
+test('the genuine same-evening upload passes', () => {
+  assert.equal(highlightMismatch({ publishedAt: '2026-09-20T20:23:11Z' }, ATL), null);
+  assert.equal(isHighlightForGame({ publishedAt: '2026-09-21T02:10:00Z' }, ATL), true);
+});
+
+test('an upload from long after the game is rejected', () => {
+  // A retrospective or a "best of" cut months later is not this game's recap.
+  assert.equal(
+    highlightMismatch({ publishedAt: '2026-11-02T20:00:00Z' }, ATL),
+    'published-too-long-after');
+});
+
+test('a link we cannot date is not trusted', () => {
+  assert.equal(highlightMismatch({ id: 'abc' }, ATL), 'undateable');
+  assert.equal(highlightMismatch({ publishedAt: '2026-09-20T20:23:11Z' }, { ...ATL, date: undefined }),
+    'undateable');
+  assert.equal(isHighlightForGame(undefined, ATL), false);
+  assert.equal(publishWindow('nonsense'), null);
+});
+
+test('the title must name both teams', () => {
+  const at = '2026-09-20T20:32:58Z';
+  assert.equal(highlightMismatch(
+    { publishedAt: at, title: 'Panthers vs. Falcons Game Highlights | NFL 2026 Week 2' }, ATL), null);
+  // The CLE@TB slot held the Bengals-Texans video: right day, wrong game.
+  assert.equal(highlightMismatch(
+    { publishedAt: at, title: 'Bengals vs. Texans Game Highlights | NFL 2026 Week 2' }, ATL),
+    'title-missing-CAR');
+});
+
+test('the title must agree about week and season', () => {
+  const at = '2026-09-20T20:32:58Z';
+  assert.equal(highlightMismatch(
+    { publishedAt: at, title: 'Panthers vs. Falcons Game Highlights | NFL 2026 Week 7' }, ATL),
+    'title-week-7');
+  assert.equal(highlightMismatch(
+    { publishedAt: at, title: 'Panthers vs. Falcons Game Highlights | NFL 2025 Week 2' }, ATL),
+    'title-season-2025');
+  // A season's playoff uploads can carry the next calendar year.
+  assert.equal(highlightMismatch(
+    { publishedAt: at, title: 'Panthers vs. Falcons Highlights | 2027 NFC Wild Card' }, ATL), null);
+});
+
+test('prune drops bad stored links and keeps good ones', () => {
+  const games = [
+    { gameKey: 'CAR@ATL', away: 'CAR', home: 'ATL', date: '2026-09-20T17:00:00Z' },
+    { gameKey: 'CIN@HOU', away: 'CIN', home: 'HOU', date: '2026-09-20T17:00:00Z' },
+  ];
+  const { videos, dropped } = pruneHighlights({
+    'CAR@ATL': { id: 'h6bi8oqivbM', publishedAt: '2025-09-21T20:23:11Z' }, // last season
+    'CIN@HOU': { id: 'Bi13ofXC0xY', publishedAt: '2026-09-20T20:32:58Z' },
+  }, games, { season: 2026, week: 2 });
+
+  assert.deepEqual(Object.keys(videos), ['CIN@HOU']);
+  assert.deepEqual(dropped.map((d) => [d.gameKey, d.reason]),
+    [['CAR@ATL', 'published-before-this-game']]);
+});
+
+test('one video claimed by two games is dropped from both', () => {
+  // Neither entry says which game it really belongs to, and a link to someone
+  // else's game is worse than a re-search.
+  const games = [
+    { gameKey: 'CIN@HOU', away: 'CIN', home: 'HOU', date: '2026-09-20T17:00:00Z' },
+    { gameKey: 'CLE@TB', away: 'CLE', home: 'TB', date: '2026-09-20T17:00:00Z' },
+  ];
+  const dupe = { id: 'Bi13ofXC0xY', publishedAt: '2026-09-20T20:32:58Z' };
+  const { videos, dropped } = pruneHighlights({ 'CIN@HOU': dupe, 'CLE@TB': { ...dupe } },
+    games, { season: 2026, week: 2 });
+
+  assert.deepEqual(videos, {});
+  assert.equal(dropped.length, 2);
+  assert.ok(dropped.every((d) => d.reason.startsWith('also-claimed-by')));
+});
+
+test('prune leaves entries it has no game for alone', () => {
+  const stored = { 'SF@LAR': { id: 'x', publishedAt: '2026-09-11T03:55:31Z' } };
+  const { videos, dropped } = pruneHighlights(stored, [], { season: 2026, week: 1 });
+  assert.deepEqual(videos, stored);
+  assert.deepEqual(dropped, []);
 });
 
 test('a game that just went final is searched immediately', () => {
