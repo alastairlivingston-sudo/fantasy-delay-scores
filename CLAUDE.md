@@ -99,8 +99,8 @@ See BUILD_PLAN.md for architecture and phases.
 3. Delay mode must never show a snapshot newer than (now − delay); if none is
    old enough, show pre-game state + an explanatory notice, never the oldest
    available snapshot.
-4. `js/gate.js`, `js/project.js`, `js/youtube.js` stay environment-free (no
-   window/document/fetch) so `node --test` covers them.
+4. `js/gate.js`, `js/project.js`, `js/youtube.js`, `js/matchups.js` stay
+   environment-free (no window/document/fetch) so `node --test` covers them.
 5. Sleeper team codes are canonical; normalise ESPN codes (WSH→WAS, LA→LAR)
    at the api.js boundary.
 6. A starter whose game hasn't kicked off renders "—", never "0.0" — both are
@@ -120,6 +120,15 @@ See BUILD_PLAN.md for architecture and phases.
    "Final" says the opposite. Whether the official highlight is up is the ONLY
    per-game progress signal the card gives; the placeholder text for a game
    without one is identical whatever its state.
+11. The matchup tab flicks through EVERY matchup in the league (arrows, like
+   Sleeper), and every one of them renders from the same gate.js ctx as your
+   own — same watched ticks, same delayed snapshot. Browsing the league can
+   never show a score your mode wouldn't. `buildMatchups` puts yours at index
+   0, so a league or week change resets to it.
+12. Switching league is one tap on the league name in the header, then one tap
+   on the league. It used to be a native `<select>` buried in the drawer: tap
+   ☰, find the row, spin the wheel, confirm, close. Don't put a league (or any
+   other everyday switch) behind a `<select>` on mobile.
 
 ## Owner context
 Sleeper username `AlastairL` (user_id 735249111976112128). 2025 leagues:
