@@ -1,8 +1,15 @@
 // Resolves finished games to official NFL highlight video IDs via the
 // YouTube Data API (free tier: 10k units/day; one search = 100 units + one
 // videos.list = 1 unit per candidate). A hit is only kept if it passes
-// isFullHighlightVideo (duration + title checks) — the app never falls back to
-// a raw YouTube search, since that results page can itself show a score.
+// isFullHighlightVideo (duration + title checks) AND highlightMismatch (right
+// teams, right week, published in the hours after THIS kickoff — the NFL
+// channel is full of last season's version of the same fixture). The app never
+// falls back to a raw YouTube search, since that results page can itself show
+// a score.
+//
+// Stored per game: {id, publishedAt, title}. The title is kept so a later run
+// can re-check a link it didn't resolve itself; it is safe to store because
+// isFullHighlightVideo rejects any title carrying a scoreline.
 //
 // Run hourly all season by highlights.yml, and opportunistically by the two
 // recorder workflows. Without YOUTUBE_API_KEY it exits quietly.
@@ -23,9 +30,20 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getNflState, getScoreboard } from '../js/api.js';
-import { highlightQuery, isFullHighlightVideo, shouldSearchAgain } from '../js/youtube.js';
+import {
+  highlightQuery, isFullHighlightVideo, shouldSearchAgain,
+  highlightMismatch, publishWindow, pruneHighlights,
+} from '../js/youtube.js';
 
 const NFL_CHANNEL_ID = 'UCDVYQ4Zhbm3S2dlz7P1GBDg'; // official NFL channel
+
+// The search is the expensive call (100 units; the videos.list that follows is
+// 1 unit for the whole batch), so asking for a single result and validating
+// only that one throws away a whole search whenever the top hit is last
+// season's meeting. Same cost, more candidates.
+// Declared up here, not beside findHighlight: the work below runs at top level,
+// so anything it reaches must already be initialised.
+const CANDIDATES = 5;
 
 const dataDir = process.argv[2];
 const key = process.env.YOUTUBE_API_KEY;
@@ -85,6 +103,18 @@ async function resolveWeek(w) {
   stored.pending ||= {};
 
   const games = await getScoreboard(season, w);
+
+  // Re-check what's already stored before adding to it. Links resolved before
+  // the date/title guards existed can be last season's meeting of the same two
+  // teams, or another game's video entirely; dropping one here puts the game
+  // back in the queue below, where the stricter checks apply.
+  const pruned = pruneHighlights(stored.videos, games, { season, week: w });
+  for (const d of pruned.dropped) {
+    console.warn(`week ${w}: dropping stored ${d.gameKey} -> ${d.id} (${d.reason})`);
+    delete stored.pending[d.gameKey]; // a fresh search, not a continued backoff
+  }
+  stored.videos = pruned.videos;
+
   const unresolved = games.filter((g) => g.state === 'post' && !stored.videos[g.gameKey]);
   const due = unresolved.filter((g) => shouldSearchAgain(stored.pending[g.gameKey]));
   console.log(`week ${w}: ${unresolved.length} finished games without a highlight, ${due.length} due a search`);
@@ -97,7 +127,8 @@ async function resolveWeek(w) {
     attempt.lastTriedAt = Date.now();
     stored.pending[g.gameKey] = attempt;
 
-    const video = await findHighlight(g, w);
+    const taken = new Set(Object.values(stored.videos).map((v) => v.id));
+    const video = await findHighlight(g, w, taken);
     if (video === null) { apiDown = true; break; } // API said no — stop, retry next run
     if (video) {
       stored.videos[g.gameKey] = video;
@@ -117,30 +148,60 @@ async function resolveWeek(w) {
  * The validated official highlight for one game, or `undefined` when there
  * isn't one yet, or `null` when the YouTube API itself failed (quota, outage)
  * and the run should stop rather than burn attempts on a dead endpoint.
+ *
+ * `taken` is the set of video ids already claimed by other games this week.
  */
-async function findHighlight(g, w) {
+async function findHighlight(g, w, taken = new Set()) {
+  // Bound the search by the kickoff itself. This is the cheapest of the
+  // wrong-year guards: the previous season's meeting is never returned at all,
+  // so it can't take the one candidate slot that mattered.
+  const range = publishWindow(g.date);
   const searchUrl = 'https://www.googleapis.com/youtube/v3/search?' + new URLSearchParams({
     key, q: highlightQuery({ away: g.away, home: g.home, week: w, season }),
-    channelId: NFL_CHANNEL_ID, part: 'snippet', type: 'video', maxResults: '1',
+    channelId: NFL_CHANNEL_ID, part: 'snippet', type: 'video', maxResults: String(CANDIDATES),
+    ...(range ? {
+      publishedAfter: new Date(range.from).toISOString(),
+      publishedBefore: new Date(range.to).toISOString(),
+    } : {}),
   });
   const searchRes = await fetch(searchUrl);
   if (!searchRes.ok) { console.warn(`YouTube API ${searchRes.status} for ${g.gameKey}; stopping`); return null; }
-  const id = (await searchRes.json()).items?.[0]?.id?.videoId;
-  if (!id) { console.log(`${g.gameKey}: no result yet (highlight may not be uploaded)`); return undefined; }
+  const ids = ((await searchRes.json()).items || [])
+    .map((i) => i?.id?.videoId).filter(Boolean);
+  if (!ids.length) { console.log(`${g.gameKey}: no result yet (highlight may not be uploaded)`); return undefined; }
 
   const detailUrl = 'https://www.googleapis.com/youtube/v3/videos?' + new URLSearchParams({
-    key, id, part: 'snippet,contentDetails',
+    key, id: ids.join(','), part: 'snippet,contentDetails',
   });
   const detailRes = await fetch(detailUrl);
   if (!detailRes.ok) { console.warn(`YouTube API ${detailRes.status} for ${g.gameKey} details; stopping`); return null; }
-  const detail = (await detailRes.json()).items?.[0];
-  const title = detail?.snippet?.title;
-  const durationIso = detail?.contentDetails?.duration;
-  if (detail && isFullHighlightVideo({ title, durationIso })) {
+  const items = (await detailRes.json()).items || [];
+
+  // Search order is relevance order, so the first candidate that survives every
+  // check is the best one — not merely an acceptable one.
+  for (const id of ids) {
+    const detail = items.find((i) => i.id === id);
+    if (!detail) continue;
+    const title = detail.snippet?.title;
+    const durationIso = detail.contentDetails?.duration;
+    const candidate = { id, publishedAt: detail.snippet?.publishedAt, title };
+    if (taken.has(id)) {
+      console.log(`${g.gameKey}: "${title}" already resolved for another game; skipping`);
+      continue;
+    }
+    if (!isFullHighlightVideo({ title, durationIso })) {
+      console.log(`${g.gameKey}: "${title}" (${durationIso}) isn't a full highlight reel; skipping`);
+      continue;
+    }
+    const mismatch = highlightMismatch(candidate, { ...g, week: w, season });
+    if (mismatch) {
+      console.log(`${g.gameKey}: "${title}" rejected (${mismatch})`);
+      continue;
+    }
     console.log(`${g.gameKey} -> ${id} ("${title}")`);
-    return { id, publishedAt: detail.snippet.publishedAt };
+    return candidate;
   }
-  console.log(`${g.gameKey}: top result "${title}" (${durationIso}) failed validation; not saving`);
+  console.log(`${g.gameKey}: ${ids.length} candidate(s), none validated; not saving`);
   return undefined;
 }
 

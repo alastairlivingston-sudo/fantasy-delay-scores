@@ -76,6 +76,20 @@ See BUILD_PLAN.md for architecture and phases.
     weekly cap in api/refresh.js, counted from GitHub's own `workflow_dispatch`
     history (no database). Spam is cheap by design: the per-game backoff means
     repeat checks inside the backoff window cost zero YouTube quota.
+12. A channel search for "<Team> vs <Team> Week N <season> highlights" WILL
+    return the same fixture from an EARLIER SEASON. Measured on the stored
+    files: 2026 wk2 CAR@ATL pointed at a 2025-09-21 upload, 2026 wk2 JAX@DEN at
+    2025-12-22, 2026 wk1 DEN@KC at the 2025 wk17 game — and one video was
+    stored for both CIN@HOU and CLE@TB. So a candidate is kept only if
+    `highlightMismatch` (js/youtube.js) clears it: published between kickoff+2h
+    and kickoff+4d, title naming both teams and agreeing on week/season, and its
+    id not already claimed by another game that week. Real publish lags across
+    287 stored links: 2.97h to 7.7h after kickoff, so that window has room at
+    both ends. The search also passes publishedAfter/publishedBefore and takes 5
+    candidates instead of 1 — same 100-unit cost, and the wrong-year video is
+    never even returned. `pruneHighlights` re-checks stored links on every
+    resolver run, and the app re-checks at render, so a bad link stops being
+    shown without waiting for the file to be rewritten.
 
 ## Hard rules
 1. Rendering must only read gated data from `js/gate.js`. In watched/delay
@@ -101,6 +115,11 @@ See BUILD_PLAN.md for architecture and phases.
    shorter (bye week, odd-sized league, no opponent yet). `playerCell` must
    tolerate an undefined player — it threw once and took the whole view down
    with a "Failed to load" alert.
+10. A game card never shows live/final status. A game still reading "Live" long
+   after it should have ended says "overtime", which is a spoiler by itself, and
+   "Final" says the opposite. Whether the official highlight is up is the ONLY
+   per-game progress signal the card gives; the placeholder text for a game
+   without one is identical whatever its state.
 
 ## Owner context
 Sleeper username `AlastairL` (user_id 735249111976112128). 2025 leagues:

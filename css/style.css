@@ -174,12 +174,6 @@ button.check-now:disabled { opacity: .45; cursor: default; }
   display: flex; align-items: baseline; gap: 4px;
 }
 .game .matchup-name .kick { color: var(--muted); font-variant-numeric: tabular-nums; }
-.game .matchup-name .tag {
-  margin-left: 6px; font-size: .65rem; font-weight: 700; text-transform: uppercase;
-  padding: 1px 5px; border-radius: 5px; letter-spacing: .03em;
-}
-.game .tag.post { background: #2a3050; color: var(--muted); }
-.game .tag.in { background: var(--bad); color: #fff; }
 .game a.yt {
   color: var(--accent); text-decoration: none; font-size: .8rem; font-weight: 600;
   padding: 6px 9px; background: var(--card2); border-radius: 8px; white-space: nowrap;

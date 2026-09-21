@@ -9,6 +9,7 @@ import { buildFeed } from './newsflash.js';
 import { startRecorder } from './recorder.js';
 import { browseSeasonWeek, chooseDefaultWeek, weekOptions } from './weeks.js';
 import { quotaState, spendRefresh, resetsAt, WEEKLY_REFRESH_LIMIT } from './quota.js';
+import { isHighlightForGame } from './youtube.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -514,17 +515,17 @@ function flashSaved(msg = 'Saved') {
   toastTimer = setTimeout(() => { t.classList.remove('show'); t.hidden = true; }, 1200);
 }
 
-// A game card's spoiler-safe info line: kickoff time (never a score) · matchup,
-// plus a tiny live/final status tag so you can tell what's on without a
-// scoreline. Shared by the league Games tab and the standalone Highlights view.
+// A game card's spoiler-safe info line: kickoff time (never a score) · matchup.
+// Deliberately NO live/final status: "still Live" an hour after it should have
+// ended is itself a spoiler — it says overtime. Whether a highlight is ready is
+// the only progress signal the card gives, and that one is harmless.
+// Shared by the league Games tab and the standalone Highlights view.
 function gameCardBase(g) {
   const card = el('div', 'game');
   const info = el('div', 'info');
   const kickoff = new Date(g.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  const tag = g.state === 'post' ? 'Final' : g.state === 'in' ? 'Live' : '';
   const line = el('div', 'matchup-name');
   line.append(el('span', 'kick', kickoff), el('span', null, ` · ${g.away} @ ${g.home}`));
-  if (tag) line.append(el('span', `tag ${g.state}`, tag));
   info.append(line);
   card.append(info);
   return card;
@@ -533,8 +534,17 @@ function gameCardBase(g) {
 // The highlight affordance for a game. Only a resolver-confirmed, full-length
 // official upload is ever linked (never a live search — its results page can
 // itself show a score); otherwise a non-clickable placeholder.
-function highlightEl(g, video) {
-  if (video) {
+//
+// The stored link is re-checked here against this game's kickoff and teams:
+// links resolved before those guards existed can point at last season's meeting
+// of the same two teams, and the app should stop showing them immediately
+// rather than wait for the next resolver run to clean the file up.
+//
+// The placeholder says the same thing for every game whatever its state — a
+// label that changed at the final whistle would leak exactly what the missing
+// status tag was hiding.
+function highlightEl(g, video, ctx) {
+  if (isHighlightForGame(video, { ...g, season: ctx?.season, week: ctx?.week })) {
     const a = el('a', 'yt', '▶ Highlights');
     a.title = `Posted ${relativeTime(video.publishedAt)}`;
     a.href = `https://www.youtube.com/watch?v=${video.id}`;
@@ -542,14 +552,13 @@ function highlightEl(g, video) {
     a.rel = 'noopener noreferrer';
     return a;
   }
-  const label = g.state === 'post' ? 'No highlight yet' : '—';
-  return el('span', 'yt pending', label);
+  return el('span', 'yt pending', 'No highlight yet');
 }
 
 function renderGames() {
   $('#games-hint').textContent = config.mode === 'watched'
-    ? 'Tick a game once you’ve watched it — its players then count in your matchup.'
-    : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score.';
+    ? 'Tick a game once you’ve watched it — its players then count in your matchup. Games never show live or final status; only whether the highlights are up.'
+    : 'Only a confirmed, full-length official NFL highlight is ever linked — never a live search, to avoid spoiling the score. Games never show live or final status: the only thing that changes here is whether the highlights are up.';
   renderChecked($('#highlights-checked'), data.highlightsCheckedAt);
   renderCheckButtons();
   const list = $('#games-list');
@@ -572,7 +581,7 @@ function renderGames() {
     };
     toggle.append(cb, el('span', 'status', 'seen'));
     card.append(toggle);
-    card.append(highlightEl(g, data.highlights[g.gameKey]));
+    card.append(highlightEl(g, data.highlights[g.gameKey], config));
     list.append(card);
   }
 }
@@ -655,7 +664,7 @@ function renderHighlights() {
   }
   for (const g of hl.games) {
     const card = gameCardBase(g);
-    card.append(highlightEl(g, hl.videos[g.gameKey]));
+    card.append(highlightEl(g, hl.videos[g.gameKey], hl));
     list.append(card);
   }
 }
@@ -806,8 +815,11 @@ async function checkHighlightsNow({ silent = false } = {}) {
 const AUTO_CHECK_STALE_MS = 15 * 60_000;
 let lastAutoCheckAt = 0;
 
-function finishedWithoutHighlight(games, videos) {
-  return (games || []).some((g) => g.state === 'post' && !videos?.[g.gameKey]);
+// A stored link that fails validation counts as missing, not as resolved —
+// otherwise a wrong-year link would suppress the very check that replaces it.
+function finishedWithoutHighlight(games, videos, ctx) {
+  return (games || []).some((g) => g.state === 'post'
+    && !isHighlightForGame(videos?.[g.gameKey], { ...g, season: ctx?.season, week: ctx?.week }));
 }
 
 async function autoCheckIfStale() {
@@ -822,7 +834,7 @@ async function autoCheckIfStale() {
 
   // Nothing to find, or the server looked recently enough that a fresh run
   // would just hit the resolver's per-game backoff and do nothing anyway.
-  if (!finishedWithoutHighlight(games, videos)) return;
+  if (!finishedWithoutHighlight(games, videos, onHighlightsView ? hl : config)) return;
   if (Date.now() - checkedAt < AUTO_CHECK_STALE_MS) return;
 
   lastAutoCheckAt = Date.now();
