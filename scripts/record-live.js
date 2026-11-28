@@ -133,8 +133,22 @@ async function recordOnce() {
   for (const g of games) gameStates[g.gameKey] = { state: g.state, progress: g.progress };
 
   let appended = false;
+  let failedLeagues = 0;
+  let lastError = null;
   for (const league of leagues) {
-    const matchups = await getMatchups(league.league_id, week);
+    // One league 404ing (e.g. Sleeper has no matchups for it this week) must
+    // not take the others down with it — it aborted the whole Thanksgiving
+    // window after 5 ticks. Only a tick where EVERY league fails counts as a
+    // failure.
+    let matchups;
+    try {
+      matchups = await getMatchups(league.league_id, week);
+    } catch (err) {
+      failedLeagues++;
+      lastError = err;
+      console.warn(`skipping league ${league.league_id}: ${err.message}`);
+      continue;
+    }
     const players_points = {};
     const player_stats = {};
     for (const m of matchups) {
@@ -157,6 +171,7 @@ async function recordOnce() {
       appended = true;
     }
   }
+  if (leagues.length && failedLeagues === leagues.length) throw lastError;
   return { appended, games };
 }
 
