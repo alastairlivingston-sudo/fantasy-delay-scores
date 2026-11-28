@@ -41,7 +41,14 @@ await mkdir(dataDir, { recursive: true });
 let appended = 0;
 
 for (const league of leagues) {
-  const matchups = await getMatchups(league.league_id, week);
+  let matchups;
+  try {
+    matchups = await getMatchups(league.league_id, week);
+  } catch (err) {
+    // One league with no matchups this week must not block the others.
+    console.warn(`skipping ${league.name}: ${err.message}`);
+    continue;
+  }
   const players_points = {};
   const player_stats = {};
   for (const m of matchups) {
